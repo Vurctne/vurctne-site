@@ -225,6 +225,47 @@ h3 {
   opacity: 0.6;
 }
 
+a.game-art { display: block; transition: filter 120ms ease; }
+a.game-art:hover { filter: brightness(1.08); }
+
+.game-art-hex {
+  background: radial-gradient(120% 120% at 30% 20%, #1e293b 0%, #0f172a 70%);
+}
+.hex {
+  position: absolute;
+  display: block;
+  aspect-ratio: 1;
+  clip-path: polygon(25% 5%, 75% 5%, 100% 50%, 75% 95%, 25% 95%, 0% 50%);
+}
+.hex-a {
+  width: 40%;
+  left: 22%;
+  top: 18%;
+  background: linear-gradient(140deg, #fbbf24 0%, #f97316 70%);
+  box-shadow: 0 0 40px 4px rgba(251,146,60,0.35);
+}
+.hex-b {
+  width: 30%;
+  left: 52%;
+  top: 36%;
+  background: linear-gradient(140deg, #38bdf8 0%, #0284c7 80%);
+  box-shadow: 0 0 32px 3px rgba(56,189,248,0.3);
+}
+.hex-c {
+  width: 26%;
+  left: 18%;
+  top: 54%;
+  background: linear-gradient(140deg, #a78bfa 0%, #6d28d9 80%);
+  box-shadow: 0 0 28px 3px rgba(167,139,250,0.28);
+}
+.hex-d {
+  width: 22%;
+  left: 48%;
+  top: 64%;
+  background: linear-gradient(140deg, #334155 0%, #1e293b 80%);
+  box-shadow: 0 0 24px 2px rgba(148,163,184,0.18);
+}
+
 .game-body p { color: var(--ink-soft); margin: 10px 0; }
 .game-chinese {
   font-family: var(--serif);

@@ -1,0 +1,2104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+<meta name="theme-color" content="#0f172a" />
+<title>Hexfall — Turn-Based Hex Conquest | Vurctne</title>
+<meta name="description" content="Hexfall is a turn-based hex strategy game. Capture territory, manage economy, outmaneuver opponents. Play solo, async with friends, or the daily challenge." />
+<meta property="og:title" content="Hexfall — Turn-Based Hex Conquest" />
+<meta property="og:description" content="Turn-based hex strategy. Capture, merge, defeat opponents." />
+<meta property="og:type" content="website" />
+<meta property="og:url" content="https://vurctne.com/hexfall" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%E2%9A%94%EF%B8%8F%3C/text%3E%3C/svg%3E" />
+<script src="https://cdn.tailwindcss.com"></script>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+  html, body { margin: 0; padding: 0; background: #0f172a; overscroll-behavior: none; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
+  #root { min-height: 100vh; min-height: 100dvh; }
+  * { -webkit-tap-highlight-color: transparent; }
+  input, button { font-family: inherit; }
+  @keyframes ping {
+    75%, 100% { transform: scale(2); opacity: 0; }
+  }
+  .animate-ping { animation: ping 1s cubic-bezier(0, 0, 0.2, 1) infinite; }
+  @keyframes pulse { 50% { opacity: .5; } }
+  .animate-pulse { animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" data-type="module">
+const { useState, useEffect, useRef, useCallback, useMemo } = React;
+
+// ============ STORAGE SHIM ============
+// Replaces window.storage (Claude-specific) with localStorage for the public web.
+// Async methods are kept so the rest of the code works unchanged.
+const appStorage = {
+  async get(key) {
+    try {
+      const v = localStorage.getItem(key);
+      return v == null ? null : { key, value: v };
+    } catch { return null; }
+  },
+  async set(key, value) {
+    try { localStorage.setItem(key, value); return { key, value }; }
+    catch { return null; }
+  },
+  async delete(key) {
+    try { localStorage.removeItem(key); return { key, deleted: true }; }
+    catch { return null; }
+  },
+  async list(prefix = '') {
+    try {
+      const keys = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith(prefix)) keys.push(k);
+      }
+      return { keys };
+    } catch { return { keys: [] }; }
+  },
+};
+// Expose under the name the game code uses
+window.storage = {
+  get: (key) => appStorage.get(key),
+  set: (key, value) => appStorage.set(key, value),
+  delete: (key) => appStorage.delete(key),
+  list: (prefix) => appStorage.list(prefix),
+};
+
+// ============ CONFIG ============
+const HEX_SIZE = 22;
+const SQRT3 = Math.sqrt(3);
+const MAP_R = 6;
+
+const THEMES = {
+  classic: {
+    name: 'Classic', price: 0,
+    bg: '#0f172a', panel: '#1e293b', border: '#334155',
+    players: [
+      { color: '#ef4444', light: '#fca5a5', dark: '#991b1b' },
+      { color: '#3b82f6', light: '#93c5fd', dark: '#1e40af' },
+      { color: '#10b981', light: '#6ee7b7', dark: '#065f46' },
+      { color: '#f59e0b', light: '#fcd34d', dark: '#92400e' },
+    ],
+    neutral: { light: '#d1d5db', dark: '#4b5563' },
+    mountain: { light: '#78716c', dark: '#292524' },
+  },
+  sakura: {
+    name: 'Sakura', price: 300,
+    bg: '#1a0d1f', panel: '#2e1a35', border: '#4a2950',
+    players: [
+      { color: '#ec4899', light: '#f9a8d4', dark: '#9f1239' },
+      { color: '#a78bfa', light: '#c4b5fd', dark: '#5b21b6' },
+      { color: '#f472b6', light: '#fbcfe8', dark: '#be185d' },
+      { color: '#fb923c', light: '#fed7aa', dark: '#9a3412' },
+    ],
+    neutral: { light: '#e9d5ff', dark: '#6b21a8' },
+    mountain: { light: '#57534e', dark: '#1c1917' },
+  },
+  ocean: {
+    name: 'Ocean', price: 300,
+    bg: '#0c1a2e', panel: '#15263f', border: '#1e3a5f',
+    players: [
+      { color: '#06b6d4', light: '#67e8f9', dark: '#155e75' },
+      { color: '#8b5cf6', light: '#c4b5fd', dark: '#5b21b6' },
+      { color: '#22d3ee', light: '#a5f3fc', dark: '#0e7490' },
+      { color: '#f59e0b', light: '#fde68a', dark: '#b45309' },
+    ],
+    neutral: { light: '#cbd5e1', dark: '#475569' },
+    mountain: { light: '#475569', dark: '#0f172a' },
+  },
+  forest: {
+    name: 'Forest', price: 500,
+    bg: '#0f1e0f', panel: '#1a2e1a', border: '#2d4a2d',
+    players: [
+      { color: '#65a30d', light: '#bef264', dark: '#365314' },
+      { color: '#0891b2', light: '#67e8f9', dark: '#164e63' },
+      { color: '#c2410c', light: '#fed7aa', dark: '#7c2d12' },
+      { color: '#a16207', light: '#fde68a', dark: '#713f12' },
+    ],
+    neutral: { light: '#d6d3d1', dark: '#57534e' },
+    mountain: { light: '#44403c', dark: '#1c1917' },
+  },
+};
+
+const U_COST = [0, 8, 18, 32, 48];
+const U_WAGE = [0, 1, 4, 12, 36];
+const U_NAME = ['', 'Scout', 'Guard', 'Rider', 'Champion'];
+const U_ICON = ['', '👤', '🛡️', '🐴', '👑'];
+const TOWER_COST = 18;
+const STOWER_COST = 38;
+const TOWER_WAGE = 1;
+const STOWER_WAGE = 5;
+const FARM_BASE = 14;
+const FARM_INC = 3;
+const FARM_INCOME = 5;
+const START_GOLD = 10;
+const TREE_SPREAD = 0.10;
+
+const AI_NAMES = { easy: 'Novice', medium: 'Captain', hard: 'Warlord' };
+
+const MAP_SHAPES = {
+  classic: { name: 'Classic', desc: 'Rounded hex map', icon: '⬢' },
+  rect: { name: 'Plains', desc: 'Wide rectangular battlefield', icon: '▭' },
+  divide: { name: 'Great Divide', desc: 'Mountain range splits the map', icon: '⛰️' },
+  isles: { name: 'Twin Isles', desc: 'Two islands, narrow bridge', icon: '🏝️' },
+};
+
+const ACHIEVEMENTS = [
+  { id: 'first_win', name: 'First Blood', desc: 'Win your first game', reward: 100, icon: '🩸' },
+  { id: 'quick_win', name: 'Blitzkrieg', desc: 'Win in under 15 turns', reward: 200, icon: '⚡' },
+  { id: 'rich', name: 'Rich Baron', desc: 'Reach 80 gold in one province', reward: 150, icon: '💰' },
+  { id: 'empire', name: 'Empire Builder', desc: 'Own 30+ tiles at once', reward: 150, icon: '🏛️' },
+  { id: 'win_hard', name: 'Warlord Slayer', desc: 'Defeat a Warlord AI', reward: 500, icon: '⚔️' },
+  { id: 'streak3', name: 'On a Roll', desc: 'Win 3 games in a row', reward: 300, icon: '🔥' },
+  { id: 'daily7', name: 'Dedicated', desc: '7-day login streak', reward: 500, icon: '📅' },
+  { id: 'campaign5', name: 'Halfway There', desc: 'Complete 5 campaign levels', reward: 300, icon: '🗺️' },
+  { id: 'campaign10', name: 'Conqueror', desc: 'Complete the campaign', reward: 1000, icon: '👑' },
+  { id: 'perfect', name: 'Flawless', desc: 'Get 3 stars on a campaign level', reward: 200, icon: '⭐' },
+];
+
+const CAMPAIGN = [
+  { id: 1,  name: 'First Steps',     seed: 1001, ai: ['easy'],                  fog: false, targetTurns: 12, shape: 'classic', desc: 'One Novice. Learn the basics.' },
+  { id: 2,  name: 'Two Fronts',      seed: 1002, ai: ['easy', 'easy'],          fog: false, targetTurns: 16, shape: 'classic', desc: 'Two directions to push.' },
+  { id: 3,  name: 'Open Plains',     seed: 1003, ai: ['medium'],                fog: false, targetTurns: 14, shape: 'rect',    desc: 'Wide plains, nowhere to hide.' },
+  { id: 4,  name: 'Crossfire',       seed: 1004, ai: ['medium', 'easy'],        fog: false, targetTurns: 18, shape: 'classic', desc: 'A smart one and a careless one.' },
+  { id: 5,  name: 'Warlord Emerges', seed: 1005, ai: ['hard'],                  fog: false, targetTurns: 20, shape: 'classic', desc: 'First Warlord — farms matter now.' },
+  { id: 6,  name: 'The Great Divide',seed: 1006, ai: ['medium', 'medium'],      fog: false, targetTurns: 22, shape: 'divide',  desc: 'A mountain range. Find the gaps.' },
+  { id: 7,  name: 'Shadow War',      seed: 1007, ai: ['medium'],                fog: true,  targetTurns: 16, shape: 'rect',    desc: 'Fog of war on open plains.' },
+  { id: 8,  name: 'Twin Isles',      seed: 1008, ai: ['hard', 'medium'],        fog: false, targetTurns: 24, shape: 'isles',   desc: 'Hold the bridge or lose it all.' },
+  { id: 9,  name: 'Twin Warlords',   seed: 1009, ai: ['hard', 'hard'],          fog: false, targetTurns: 25, shape: 'divide',  desc: 'Two Warlords. One mountain range.' },
+  { id: 10, name: 'Apocalypse',      seed: 1010, ai: ['hard', 'hard', 'hard'],  fog: true,  targetTurns: 30, shape: 'isles',   desc: 'Three Warlords. Fog. Islands. Good luck.' },
+];
+
+const TUTORIAL_STEPS = [
+  { hint: '👋 Welcome to Hexfall!\n\nThis is a battle for territory. Red tiles are yours, blue is the enemy.\n\nGoal: eliminate all opponents.', trigger: () => true, requireNext: true },
+  { hint: '💰 Economy: Connected red tiles form a "province" that shares gold.\n\nEach non-tree tile earns 1 gold per turn. See the 💰 number on your capital 🏰 — that\'s your treasury.', trigger: () => true, requireNext: true },
+  { hint: '👆 Tap any of your red tiles to select one.', highlight: 'ownTiles', trigger: (s, ctx) => ctx.selectedKey && s.tiles[ctx.selectedKey]?.owner === 0 },
+  { hint: '⚔️ Hire a unit: tap the 👤 Scout button below.\n\nCosts 💰8 to buy, pays 💰1/turn upkeep.', highlight: 'peasantBtn', trigger: (s) => Object.values(s.tiles).some(t => t.owner === 0 && t.unit?.level === 1) },
+  { hint: '✨ Scout ready!\n\nYellow highlighted tiles show where it can go.\n\nTap a grey (neutral) tile to capture it.', highlight: 'reachable', trigger: (s) => { const myTiles = Object.values(s.tiles).filter(t => t.owner === 0).length; return myTiles > (s.tutorial?.initialTiles || 0); }},
+  { hint: '🎉 Great capture!\n\n💡 A unit can only move once per turn. Now tap "End ▶" at the top to end your turn.\n\nThe AI will move next — you\'ll see its actions.', highlight: 'endButton', trigger: (s) => s.turn >= 2 },
+  { hint: '⚠️ Heads up! When enemies are near, your tiles show red pulsing borders + a level badge.\n\nThis means they could capture you next turn. The badge shows the strongest attacker level.', trigger: () => true, requireNext: true },
+  { hint: '🛡️ Upgrade: select your Scout 👤, then tap 👤 Scout again.\n\nThis merges it into a 🛡️ Guard (level 2), which defeats all Scouts.', highlight: 'peasantBtn', trigger: (s) => Object.values(s.tiles).some(t => t.owner === 0 && t.unit?.level === 2) },
+  { hint: '🗼 Tower (💰18): level-2 defense, protects itself and adjacent tiles.\n\n💡 Towers can\'t move but only cost 💰1/turn upkeep — great value.\n\nSelect an empty tile, then tap the 🗼 button.', highlight: 'towerBtn', trigger: (s) => Object.values(s.tiles).some(t => t.owner === 0 && t.struct === 'tower') },
+  { hint: '🌾 Farm (💰14+): place adjacent to capital or another farm. +5 gold/turn, no upkeep.\n\n💡 Each farm costs 💰3 more than the last. Early farms are a strong strategy.\n\nPick an empty tile next to 🏰, then tap 🌾 Farm.', highlight: 'farmBtn', trigger: (s) => Object.values(s.tiles).some(t => t.owner === 0 && t.struct === 'farm') },
+  { hint: '🐴 Higher units: Guard → Rider (lv3, 💰32) → Champion (lv4, 💰48).\n\nStronger units break higher defenses but cost more upkeep: Riders eat 💰12/turn!\n\n💡 To merge: drop a unit onto your own unit to combine levels.', trigger: () => true, requireNext: true },
+  { hint: '🏔️ Terrain: mountains are impassable and form natural chokepoints.\n\n🌲 Trees: block tiles and give no income, but clearing one yields 💰3.\n\n💀 Graves: appear when a unit dies, grow into trees next turn.', trigger: () => true, requireNext: true },
+  { hint: '🎯 Objectives: 3 per-match goals show at the top, giving bonus coins when completed.\n\n💡 Now use everything you\'ve learned to defeat the blue enemy!\n\nTip: capturing an enemy 🏰 capital resets their treasury to 0.', trigger: (s) => s.gameOver, requireNext: true, final: true },
+  { hint: '🏆 Tutorial complete!\n\nYou now know the core mechanics of Hexfall.\n\n+100 💰 has been added to your account. Good luck, commander!', trigger: () => false, autoClose: 5000 },
+];
+
+const DAILY_SHOP_AD_MAX = 3;
+const GAME_AD_MAX = { goldBoost: 1, undoPack: 1, revive: 1 };
+
+const OBJECTIVE_POOL = [
+  { id: 'capture5', name: 'Capture 5 tiles', target: 5, reward: 15, track: (s, prev) => { const me = Object.values(s.tiles).filter(t => t.owner === 0).length; return { progress: Math.max(me - (prev?.start ?? me), 0), start: prev?.start ?? me }; }},
+  { id: 'merge3', name: 'Make a Rider', target: 1, reward: 20, track: (s) => { const hasRider = Object.values(s.tiles).some(t => t.owner === 0 && t.unit?.level >= 3); return { progress: hasRider ? 1 : 0 }; }},
+  { id: 'farm2', name: 'Build 2 farms', target: 2, reward: 20, track: (s) => { const farms = Object.values(s.tiles).filter(t => t.owner === 0 && t.struct === 'farm').length; return { progress: farms }; }},
+  { id: 'gold50', name: 'Bank 50 gold', target: 50, reward: 15, track: (s) => { const max = Math.max(0, ...Object.values(s.provinces).filter(p => p.owner === 0).map(p => p.gold)); return { progress: max }; }},
+  { id: 'kill3', name: 'Defeat 3 enemies', target: 3, reward: 20, track: (s, prev) => { const enemyUnits = Object.values(s.tiles).filter(t => t.owner !== 0 && t.owner !== -1 && t.unit).length; const base = prev?.baseline ?? enemyUnits; const kills = Math.max(0, base - enemyUnits); return { progress: kills, baseline: base }; }},
+  { id: 'tower1', name: 'Build a tower', target: 1, reward: 10, track: (s) => { const towers = Object.values(s.tiles).filter(t => t.owner === 0 && (t.struct === 'tower' || t.struct === 'stower')).length; return { progress: Math.min(towers, 1) }; }},
+];
+function rollObjectives(rng = Math.random) {
+  const pool = [...OBJECTIVE_POOL];
+  const picked = [];
+  for (let i = 0; i < 3 && pool.length; i++) {
+    const idx = Math.floor(rng() * pool.length);
+    picked.push({ ...pool[idx], tracker: {}, done: false, progress: 0 });
+    pool.splice(idx, 1);
+  }
+  return picked;
+}
+
+// ============ AUDIO ============
+let audioCtx = null;
+let audioMuted = false;
+function getAudioCtx() {
+  if (audioMuted) return null;
+  if (!audioCtx) {
+    try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+    catch (e) { return null; }
+  }
+  if (audioCtx?.state === 'suspended') audioCtx.resume().catch(() => {});
+  return audioCtx;
+}
+function playTone({ freq = 440, type = 'sine', duration = 0.1, volume = 0.15, attack = 0.005, slideTo = null, noise = false }) {
+  const ctx = getAudioCtx();
+  if (!ctx) return;
+  try {
+    const now = ctx.currentTime;
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0, now);
+    gain.gain.linearRampToValueAtTime(volume, now + attack);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+    gain.connect(ctx.destination);
+    if (noise) {
+      const bufferSize = Math.floor(ctx.sampleRate * duration);
+      const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < bufferSize; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / bufferSize);
+      const src = ctx.createBufferSource();
+      src.buffer = buffer;
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.value = freq;
+      src.connect(filter); filter.connect(gain);
+      src.start(now); src.stop(now + duration);
+    } else {
+      const osc = ctx.createOscillator();
+      osc.type = type;
+      osc.frequency.setValueAtTime(freq, now);
+      if (slideTo != null) osc.frequency.exponentialRampToValueAtTime(Math.max(1, slideTo), now + duration);
+      osc.connect(gain);
+      osc.start(now); osc.stop(now + duration);
+    }
+  } catch (e) {}
+}
+const SFX = {
+  tap: () => playTone({ freq: 900, type: 'square', duration: 0.04, volume: 0.08 }),
+  select: () => playTone({ freq: 660, type: 'triangle', duration: 0.08, volume: 0.12 }),
+  move: () => playTone({ freq: 380, type: 'sawtooth', duration: 0.09, volume: 0.1, slideTo: 520 }),
+  capture: () => { playTone({ freq: 520, type: 'square', duration: 0.08, volume: 0.12, slideTo: 780 }); setTimeout(() => playTone({ freq: 780, type: 'square', duration: 0.1, volume: 0.1, slideTo: 1040 }), 60); },
+  enemyCapture: () => playTone({ freq: 180, duration: 0.15, volume: 0.18, noise: true }),
+  buy: () => playTone({ freq: 1200, type: 'triangle', duration: 0.12, volume: 0.12, slideTo: 1600 }),
+  coins: () => { playTone({ freq: 1400, type: 'sine', duration: 0.06, volume: 0.1 }); setTimeout(() => playTone({ freq: 1800, type: 'sine', duration: 0.08, volume: 0.1 }), 50); },
+  build: () => { playTone({ freq: 220, type: 'square', duration: 0.06, volume: 0.12, noise: true }); setTimeout(() => playTone({ freq: 320, duration: 0.1, volume: 0.1, type: 'triangle' }), 70); },
+  capitalLost: () => playTone({ freq: 440, type: 'sawtooth', duration: 0.3, volume: 0.2, slideTo: 110 }),
+  merge: () => { playTone({ freq: 600, type: 'sine', duration: 0.08, volume: 0.1 }); setTimeout(() => playTone({ freq: 900, type: 'sine', duration: 0.1, volume: 0.12 }), 60); setTimeout(() => playTone({ freq: 1200, type: 'sine', duration: 0.12, volume: 0.12 }), 130); },
+  endTurn: () => playTone({ freq: 330, type: 'triangle', duration: 0.15, volume: 0.1, slideTo: 220 }),
+  turnStart: () => { playTone({ freq: 440, type: 'sine', duration: 0.1, volume: 0.1 }); setTimeout(() => playTone({ freq: 660, type: 'sine', duration: 0.15, volume: 0.12 }), 80); },
+  win: () => { playTone({ freq: 523, type: 'triangle', duration: 0.15, volume: 0.15 }); setTimeout(() => playTone({ freq: 659, type: 'triangle', duration: 0.15, volume: 0.15 }), 150); setTimeout(() => playTone({ freq: 784, type: 'triangle', duration: 0.3, volume: 0.18 }), 300); },
+  lose: () => { playTone({ freq: 330, type: 'sawtooth', duration: 0.2, volume: 0.15 }); setTimeout(() => playTone({ freq: 247, type: 'sawtooth', duration: 0.4, volume: 0.15, slideTo: 110 }), 200); },
+  threat: () => playTone({ freq: 260, type: 'sawtooth', duration: 0.06, volume: 0.08 }),
+  achievement: () => { playTone({ freq: 784, type: 'triangle', duration: 0.1, volume: 0.14 }); setTimeout(() => playTone({ freq: 1047, type: 'triangle', duration: 0.15, volume: 0.16 }), 100); },
+  objective: () => { playTone({ freq: 880, type: 'sine', duration: 0.08, volume: 0.12 }); setTimeout(() => playTone({ freq: 1175, type: 'sine', duration: 0.12, volume: 0.14 }), 70); },
+  error: () => playTone({ freq: 200, type: 'square', duration: 0.1, volume: 0.1 }),
+  undo: () => playTone({ freq: 600, type: 'triangle', duration: 0.08, volume: 0.1, slideTo: 400 }),
+};
+const AUDIO_KEY = 'hexfall:audio:v1';
+async function loadAudioMuted() {
+  try { const r = await window.storage.get(AUDIO_KEY); audioMuted = r?.value === '1'; } catch {}
+}
+async function saveAudioMuted() {
+  try { await window.storage.set(AUDIO_KEY, audioMuted ? '1' : '0'); } catch {}
+}
+
+// ============ HEX MATH ============
+const hexToPx = (q, r) => ({ x: HEX_SIZE * SQRT3 * (q + r/2), y: HEX_SIZE * 1.5 * r });
+const round3 = (q, r) => {
+  const s = -q - r;
+  let rq = Math.round(q), rr = Math.round(r), rs = Math.round(s);
+  const dq = Math.abs(rq-q), dr = Math.abs(rr-r), ds = Math.abs(rs-s);
+  if (dq > dr && dq > ds) rq = -rr - rs;
+  else if (dr > ds) rr = -rq - rs;
+  return { q: rq, r: rr };
+};
+const pxToHex = (x, y) => round3((SQRT3/3 * x - y/3) / HEX_SIZE, (2/3 * y) / HEX_SIZE);
+const DIRS = [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
+const K = (q, r) => `${q},${r}`;
+const nbrs = (q, r) => DIRS.map(([dq, dr]) => ({ q: q+dq, r: r+dr, k: K(q+dq, r+dr) }));
+const hexD = (a, b) => (Math.abs(a.q-b.q) + Math.abs(a.q+a.r-b.q-b.r) + Math.abs(a.r-b.r)) / 2;
+
+function mulberry32(seed) {
+  return function() {
+    let t = seed += 0x6D2B79F5;
+    t = Math.imul(t ^ t >>> 15, t | 1);
+    t ^= t + Math.imul(t ^ t >>> 7, t | 61);
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+const dateSeed = () => { const d = new Date(); return d.getFullYear() * 10000 + (d.getMonth()+1) * 100 + d.getDate(); };
+const todayStr = () => new Date().toISOString().slice(0, 10);
+
+// ============ MAP GEN ============
+function buildBaseLayout(shape, rng) {
+  const tiles = {};
+  const R = MAP_R;
+  if (shape === 'classic') {
+    for (let q = -R; q <= R; q++) {
+      const r1 = Math.max(-R, -q - R), r2 = Math.min(R, -q + R);
+      for (let r = r1; r <= r2; r++) {
+        const d = Math.max(Math.abs(q), Math.abs(r), Math.abs(-q-r));
+        if (d === R && rng() < 0.55) continue;
+        if (d === R - 1 && rng() < 0.18) continue;
+        tiles[K(q, r)] = { q, r, owner: -1, unit: null, struct: null, pid: null };
+      }
+    }
+  } else if (shape === 'rect') {
+    const halfH = 4;
+    for (let r = -halfH; r <= halfH; r++) {
+      const offset = Math.floor(r / 2);
+      for (let q = -R - offset; q <= R - offset; q++) {
+        const col = q + offset;
+        const edgeFactor = Math.max(Math.abs(col) / R, Math.abs(r) / halfH);
+        if (edgeFactor > 0.92 && rng() < 0.35) continue;
+        tiles[K(q, r)] = { q, r, owner: -1, unit: null, struct: null, pid: null };
+      }
+    }
+  } else if (shape === 'divide') {
+    for (let q = -R; q <= R; q++) {
+      const r1 = Math.max(-R, -q - R), r2 = Math.min(R, -q + R);
+      for (let r = r1; r <= r2; r++) {
+        const d = Math.max(Math.abs(q), Math.abs(r), Math.abs(-q-r));
+        if (d === R && rng() < 0.55) continue;
+        if (d === R - 1 && rng() < 0.18) continue;
+        tiles[K(q, r)] = { q, r, owner: -1, unit: null, struct: null, pid: null };
+      }
+    }
+    const passColumns = new Set();
+    const numPasses = 2 + Math.floor(rng() * 2);
+    for (let i = 0; i < numPasses; i++) passColumns.add(Math.floor(rng() * (2 * R + 1)) - R);
+    for (let q = -R; q <= R; q++) {
+      for (const r of [-1, 0, 1]) {
+        const k = K(q, r);
+        if (!tiles[k]) continue;
+        if (passColumns.has(q)) continue;
+        const p = r === 0 ? 0.75 : 0.35;
+        if (rng() < p) tiles[k].struct = 'mountain';
+      }
+    }
+  } else if (shape === 'isles') {
+    for (let q = -R; q <= R; q++) {
+      const r1 = Math.max(-R, -q - R), r2 = Math.min(R, -q + R);
+      for (let r = r1; r <= r2; r++) {
+        const d = Math.max(Math.abs(q), Math.abs(r), Math.abs(-q-r));
+        if (d > R) continue;
+        if (d === R && rng() < 0.55) continue;
+        if (d === R - 1 && rng() < 0.18) continue;
+        const col = q + Math.floor(r / 2);
+        const nearBridge = Math.abs(r) <= 1;
+        if (!nearBridge && Math.abs(col) <= 1) continue;
+        tiles[K(q, r)] = { q, r, owner: -1, unit: null, struct: null, pid: null };
+      }
+    }
+    for (const k of Object.keys(tiles)) {
+      const t = tiles[k];
+      const col = t.q + Math.floor(t.r / 2);
+      if (Math.abs(col) <= 1 && Math.abs(t.r) === 1 && rng() < 0.5) t.struct = 'mountain';
+    }
+  }
+  return tiles;
+}
+
+function genMap(numPlayers, rng = Math.random, shape = 'classic') {
+  const tiles = buildBaseLayout(shape, rng);
+  const keys = Object.keys(tiles);
+  const landKeys = keys.filter(k => tiles[k].struct !== 'mountain');
+  const caps = [];
+  for (let p = 0; p < numPlayers; p++) {
+    let best = null, bestD = -1;
+    for (const k of landKeys) {
+      const t = tiles[k];
+      if (t.struct === 'mountain') continue;
+      const md = caps.length === 0 ? Math.abs(t.q) + Math.abs(t.r) + 0.1 * rng() : Math.min(...caps.map(c => hexD(c, t)));
+      if (md > bestD) { bestD = md; best = t; }
+    }
+    if (!best) break;
+    caps.push(best);
+    best.owner = p;
+  }
+  const queues = caps.map(c => [c]);
+  const size = new Array(numPlayers).fill(1);
+  const targetSize = Math.max(8, Math.floor(landKeys.length / (numPlayers * 1.8)));
+  let growing = true, rounds = 0;
+  while (growing && rounds < 120) {
+    growing = false;
+    for (let p = 0; p < numPlayers; p++) {
+      if (size[p] >= targetSize) continue;
+      const q = queues[p];
+      let found = false, tries = 0;
+      while (q.length && !found && tries < q.length + 1) {
+        const t = q.shift();
+        const ns = nbrs(t.q, t.r).slice().sort(() => rng() - 0.5);
+        let exp = false;
+        for (const n of ns) {
+          const nt = tiles[n.k];
+          if (nt && nt.owner === -1 && nt.struct !== 'mountain') { nt.owner = p; q.push(nt); size[p]++; found = true; growing = true; exp = true; break; }
+        }
+        if (!exp) q.push(t);
+        tries++;
+      }
+    }
+    rounds++;
+  }
+  for (const k of keys) {
+    const t = tiles[k];
+    if (t.struct) continue;
+    if (t.owner === -1 && rng() < 0.22) t.struct = 'tree';
+    else if (t.owner >= 0 && rng() < 0.05) t.struct = 'tree';
+  }
+  return tiles;
+}
+
+function genTutorialMap() {
+  const rng = mulberry32(7777);
+  const tiles = {};
+  const R = 5;
+  for (let q = -R; q <= R; q++) {
+    const r1 = Math.max(-R, -q - R), r2 = Math.min(R, -q + R);
+    for (let r = r1; r <= r2; r++) {
+      const d = Math.max(Math.abs(q), Math.abs(r), Math.abs(-q-r));
+      if (d > R) continue;
+      if (d === R && rng() < 0.35) continue;
+      tiles[K(q, r)] = { q, r, owner: -1, unit: null, struct: null, pid: null };
+    }
+  }
+  const keys = Object.keys(tiles);
+  const playerTiles = keys.filter(k => { const t = tiles[k]; return t.q >= 2 && t.q + t.r <= 3; }).slice(0, 8);
+  playerTiles.forEach(k => { tiles[k].owner = 0; });
+  const aiTiles = keys.filter(k => { const t = tiles[k]; return t.q <= -2 && t.q + t.r >= -3; }).slice(0, 6);
+  aiTiles.forEach(k => { tiles[k].owner = 1; });
+  const mtnKey = K(0, -1);
+  if (tiles[mtnKey] && tiles[mtnKey].owner === -1) tiles[mtnKey].struct = 'mountain';
+  const mtnKey2 = K(0, 0);
+  if (tiles[mtnKey2] && tiles[mtnKey2].owner === -1) tiles[mtnKey2].struct = 'mountain';
+  const treeKey = K(1, 0);
+  if (tiles[treeKey] && tiles[treeKey].owner === 0) tiles[treeKey].struct = 'tree';
+  return tiles;
+}
+
+// ============ PROVINCE LOGIC ============
+function recomputeProvinces(s) {
+  const tiles = s.tiles;
+  const oldProvs = s.provinces || {};
+  Object.values(tiles).forEach(t => { t.pid = null; });
+  const provs = {};
+  let nid = 1;
+  for (const k of Object.keys(tiles)) {
+    const t = tiles[k];
+    if (t.owner < 0 || t.pid !== null || t.struct === 'mountain') continue;
+    const stack = [t], group = [];
+    t.pid = nid;
+    while (stack.length) {
+      const cur = stack.pop();
+      group.push(cur);
+      for (const n of nbrs(cur.q, cur.r)) {
+        const nt = tiles[n.k];
+        if (nt && nt.owner === t.owner && nt.pid === null && nt.struct !== 'mountain') { nt.pid = nid; stack.push(nt); }
+      }
+    }
+    provs[nid] = { id: nid, owner: t.owner, size: group.length, gold: 0, tileKeys: group.map(tt => K(tt.q, tt.r)), capKey: null };
+    nid++;
+  }
+  Object.values(oldProvs).forEach(op => {
+    const counts = {};
+    op.tileKeys.forEach(tk => {
+      const nt = tiles[tk];
+      if (nt && nt.owner === op.owner && nt.pid) counts[nt.pid] = (counts[nt.pid] || 0) + 1;
+    });
+    let bestId = null, bestC = 0;
+    Object.entries(counts).forEach(([id, c]) => { if (c > bestC) { bestC = c; bestId = +id; } });
+    if (bestId && provs[bestId]) provs[bestId].gold += op.gold;
+  });
+  for (const p of Object.values(provs)) {
+    if (p.size < 2) {
+      p.tileKeys.forEach(tk => { const t = tiles[tk]; if (t.struct === 'capital' || t.struct === 'farm') t.struct = null; });
+      p.gold = 0;
+    } else {
+      const existing = p.tileKeys.find(tk => tiles[tk].struct === 'capital');
+      if (existing) p.capKey = existing;
+      else {
+        const cands = p.tileKeys.filter(tk => !tiles[tk].struct && !tiles[tk].unit);
+        const tgt = cands[0] || p.tileKeys.find(tk => !tiles[tk].unit) || p.tileKeys[0];
+        if (tgt) { tiles[tgt].struct = 'capital'; tiles[tgt].unit = null; p.capKey = tgt; }
+      }
+    }
+  }
+  s.provinces = provs;
+  for (const tk of Object.keys(tiles)) {
+    const t = tiles[tk];
+    if (t.struct === 'capital' && !Object.values(provs).some(p => p.capKey === tk)) t.struct = null;
+  }
+  return s;
+}
+
+function protLevel(tiles, tq, tr, defOwner) {
+  let maxL = 0;
+  const tc = tiles[K(tq, tr)];
+  const check = (tt) => {
+    if (!tt || tt.owner !== defOwner) return;
+    if (tt.unit) maxL = Math.max(maxL, tt.unit.level);
+    if (tt.struct === 'tower') maxL = Math.max(maxL, 2);
+    if (tt.struct === 'stower') maxL = Math.max(maxL, 3);
+    if (tt.struct === 'capital') maxL = Math.max(maxL, 1);
+  };
+  check(tc);
+  for (const n of nbrs(tq, tr)) check(tiles[n.k]);
+  return maxL;
+}
+
+function canCapture(tiles, lv, tk, attOwner) {
+  const t = tiles[tk];
+  if (!t || t.owner === attOwner) return false;
+  if (t.struct === 'mountain') return false;
+  if (t.owner === -1) return lv >= 1;
+  return lv > protLevel(tiles, t.q, t.r, t.owner);
+}
+
+function reachableFrom(s, fk) {
+  const tiles = s.tiles;
+  const start = tiles[fk];
+  if (!start || !start.unit || start.unit.moved) return new Set();
+  const unit = start.unit;
+  const own = start.owner;
+  const vis = new Set([fk]);
+  const reach = new Set();
+  const queue = [fk];
+  while (queue.length) {
+    const ck = queue.shift();
+    const cur = tiles[ck];
+    for (const n of nbrs(cur.q, cur.r)) {
+      const nt = tiles[n.k];
+      if (!nt || vis.has(n.k)) continue;
+      if (nt.struct === 'mountain') continue;
+      if (nt.owner === own) {
+        if (nt.unit) { if (unit.level + nt.unit.level <= 4) { vis.add(n.k); reach.add(n.k); } continue; }
+        if (nt.struct === 'tower' || nt.struct === 'stower') continue;
+        vis.add(n.k); reach.add(n.k);
+        if (nt.struct === 'tree') continue;
+        queue.push(n.k);
+      } else {
+        if (canCapture(tiles, unit.level, n.k, own)) { vis.add(n.k); reach.add(n.k); }
+      }
+    }
+  }
+  return reach;
+}
+
+function moveUnit(s, fk, tk) {
+  const t = s.tiles;
+  const f = t[fk], to = t[tk];
+  if (!f.unit) return s;
+  if (to.struct === 'mountain') return s;
+  const unit = f.unit;
+  if (to.owner === f.owner && to.unit) {
+    const nl = unit.level + to.unit.level;
+    if (nl > 4) return s;
+    to.unit = { level: nl, moved: true };
+    f.unit = null;
+    return s;
+  }
+  let reward = 0;
+  if (to.struct === 'tree') { reward = 3; to.struct = null; }
+  else if (to.struct === 'grave') to.struct = null;
+  const capt = to.owner !== f.owner;
+  if (to.unit && capt) { to.unit = null; to.struct = 'grave'; }
+  if ((to.struct === 'tower' || to.struct === 'stower') && capt) to.struct = null;
+  if (to.struct === 'capital' && capt) { if (to.pid && s.provinces[to.pid]) s.provinces[to.pid].gold = 0; to.struct = null; }
+  if (to.struct === 'farm' && capt) to.struct = null;
+  to.unit = { ...unit, moved: true };
+  f.unit = null;
+  if (capt) to.owner = f.owner;
+  if (reward > 0 && f.pid && s.provinces[f.pid]) s.provinces[f.pid].gold += reward;
+  recomputeProvinces(s);
+  return s;
+}
+
+function buyUnit(s, pid, tk, level) {
+  const p = s.provinces[pid], t = s.tiles[tk];
+  if (!p || !t || p.gold < U_COST[level] || t.pid !== pid) return s;
+  if (t.struct === 'mountain') return s;
+  if (t.unit) {
+    const comb = t.unit.level + level;
+    if (comb > 4) return s;
+    p.gold -= U_COST[level];
+    t.unit = { level: comb, moved: t.unit.moved };
+    return s;
+  }
+  if (t.struct === 'tower' || t.struct === 'stower' || t.struct === 'capital' || t.struct === 'farm') return s;
+  p.gold -= U_COST[level];
+  if (t.struct === 'tree') { p.gold += 3; t.struct = null; }
+  else if (t.struct === 'grave') t.struct = null;
+  t.unit = { level, moved: false };
+  return s;
+}
+
+function buyTower(s, pid, tk, strong = false) {
+  const p = s.provinces[pid], t = s.tiles[tk];
+  const cost = strong ? STOWER_COST : TOWER_COST;
+  if (!p || !t || p.gold < cost || t.pid !== pid) return s;
+  if (t.struct === 'mountain') return s;
+  if (strong && t.struct === 'tower') { p.gold -= cost; t.struct = 'stower'; return s; }
+  if (t.unit || t.struct) return s;
+  p.gold -= cost;
+  t.struct = strong ? 'stower' : 'tower';
+  return s;
+}
+
+function countFarms(s, pid) { const p = s.provinces[pid]; if (!p) return 0; return p.tileKeys.filter(k => s.tiles[k].struct === 'farm').length; }
+function farmCost(s, pid) { return FARM_BASE + FARM_INC * countFarms(s, pid); }
+function canBuildFarm(s, pid, tk) {
+  const p = s.provinces[pid], t = s.tiles[tk];
+  if (!p || !t || t.pid !== pid || t.unit || t.struct) return false;
+  for (const n of nbrs(t.q, t.r)) { const nt = s.tiles[n.k]; if (nt && nt.pid === pid && (nt.struct === 'farm' || nt.struct === 'capital')) return true; }
+  return false;
+}
+function buyFarm(s, pid, tk) {
+  if (!canBuildFarm(s, pid, tk)) return s;
+  const p = s.provinces[pid];
+  const cost = farmCost(s, pid);
+  if (p.gold < cost) return s;
+  p.gold -= cost;
+  s.tiles[tk].struct = 'farm';
+  return s;
+}
+
+// Threat telegraph
+function computeThreats(s, forPlayer = 0) {
+  s.threats = {};
+  const tiles = s.tiles;
+  const myTiles = Object.values(tiles).filter(t => t.owner === forPlayer);
+  for (const t of myTiles) {
+    let maxAttack = 0;
+    const attackers = [];
+    for (const [ek, et] of Object.entries(tiles)) {
+      if (et.owner === forPlayer || et.owner === -1) continue;
+      if (!et.unit) continue;
+      for (const n of nbrs(t.q, t.r)) {
+        if (n.k !== ek) continue;
+        const prot = protLevel(tiles, t.q, t.r, forPlayer);
+        if (et.unit.level > prot) { if (et.unit.level > maxAttack) maxAttack = et.unit.level; attackers.push(ek); }
+      }
+    }
+    for (const n of nbrs(t.q, t.r)) {
+      const nt = tiles[n.k];
+      if (!nt || nt.owner === forPlayer || nt.owner === -1) continue;
+      const prov = s.provinces[nt.pid];
+      if (!prov) continue;
+      const prot = protLevel(tiles, t.q, t.r, forPlayer);
+      let affordableLevel = 0;
+      for (let lv = 4; lv >= 1; lv--) { if (prov.gold >= U_COST[lv]) { affordableLevel = lv; break; } }
+      if (affordableLevel > prot && affordableLevel > maxAttack) { maxAttack = affordableLevel; if (!attackers.includes(n.k)) attackers.push(n.k); }
+    }
+    if (maxAttack > 0) s.threats[K(t.q, t.r)] = { maxLevel: maxAttack, attackers };
+  }
+}
+
+function endTurn(s) {
+  const tiles = s.tiles;
+  for (const k of Object.keys(tiles)) { const t = tiles[k]; if (t.owner === s.currentPlayer && t.struct === 'grave') t.struct = 'tree'; }
+  const newTrees = [];
+  for (const k of Object.keys(tiles)) {
+    const t = tiles[k];
+    if (t.owner === s.currentPlayer && t.struct === 'tree' && Math.random() < TREE_SPREAD) {
+      const em = nbrs(t.q, t.r).filter(n => { const nt = tiles[n.k]; return nt && nt.owner === s.currentPlayer && !nt.struct && !nt.unit; });
+      if (em.length) newTrees.push(em[Math.floor(Math.random() * em.length)].k);
+    }
+  }
+  newTrees.forEach(k => { if (tiles[k] && !tiles[k].struct && !tiles[k].unit) tiles[k].struct = 'tree'; });
+  let next = s.currentPlayer, tries = 0;
+  do { next = (next + 1) % s.numPlayers; tries++; } while (!s.alive[next] && tries < s.numPlayers);
+  if (next <= s.currentPlayer) s.turn++;
+  s.currentPlayer = next;
+  s.undoLeft = s.undoMax;
+  for (const p of Object.values(s.provinces)) {
+    if (p.owner !== next) continue;
+    let inc = 0, wages = 0;
+    for (const tk of p.tileKeys) {
+      const t = tiles[tk];
+      if (t.struct === 'tree') continue;
+      if (t.struct === 'farm') inc += 1 + FARM_INCOME;
+      else inc += 1;
+      if (t.unit) wages += U_WAGE[t.unit.level];
+      if (t.struct === 'tower') wages += TOWER_WAGE;
+      if (t.struct === 'stower') wages += STOWER_WAGE;
+    }
+    p.gold += inc - wages;
+    if (p.gold < 0) {
+      for (const tk of p.tileKeys) { const t = tiles[tk]; if (t.unit) { t.unit = null; t.struct = 'grave'; } }
+      p.gold = 0;
+    }
+  }
+  for (const k of Object.keys(tiles)) { const t = tiles[k]; if (t.unit && t.owner === next) t.unit.moved = false; }
+  for (let p = 0; p < s.numPlayers; p++) {
+    if (!s.alive[p]) continue;
+    if (!Object.values(tiles).some(t => t.owner === p)) s.alive[p] = false;
+  }
+  const ac = s.alive.filter(x => x).length;
+  if (ac <= 1) { s.winner = s.alive.findIndex(x => x); s.gameOver = true; }
+  s.version = (s.version || 0) + 1;
+  if (next === 0 || s.mode === 'async') computeThreats(s, next === 0 ? 0 : next);
+  if (s.objectives) {
+    for (const obj of s.objectives) {
+      if (obj.done) continue;
+      const t = obj.track(s, obj.tracker);
+      obj.tracker = t;
+      obj.progress = Math.min(obj.target, t.progress);
+      if (obj.progress >= obj.target) obj.done = true;
+    }
+  }
+  return s;
+}
+
+function initGame(numPlayers, opts = {}) {
+  const rng = opts.seed != null ? mulberry32(opts.seed) : Math.random;
+  const tiles = opts.tutorial ? genTutorialMap() : genMap(numPlayers, rng, opts.shape || 'classic');
+  const objectives = opts.tutorial ? [] : rollObjectives(rng);
+  const s = {
+    tiles, provinces: null, currentPlayer: 0, turn: 1, numPlayers,
+    alive: new Array(numPlayers).fill(true), winner: null, gameOver: false, version: 1,
+    aiPlayers: opts.aiPlayers || {}, fogOfWar: !!opts.fogOfWar, mode: opts.mode || 'solo',
+    undoMax: opts.undoMax != null ? opts.undoMax : 2,
+    undoLeft: opts.undoMax != null ? opts.undoMax : 2,
+    adUses: { goldBoost: 0, undoPack: 0, revive: 0 },
+    campaignLevel: opts.campaignLevel || null, shape: opts.shape || 'classic',
+    tutorial: opts.tutorial ? { active: true, step: 0, unitBought: false, captured: false, closing: false } : null,
+    objectives, blitz: !!opts.blitz, threats: {},
+  };
+  recomputeProvinces(s);
+  const startGold = opts.tutorial ? 50 : (opts.blitz ? 15 : 12);
+  Object.values(s.provinces).forEach(p => { if (p.size >= 2) p.gold = Math.max(p.gold, startGold); });
+  for (const k of Object.keys(s.tiles)) { const t = s.tiles[k]; if (t.unit && t.owner === 0) t.unit.moved = false; }
+  computeThreats(s);
+  s.objectives.forEach(o => { o.tracker = o.track(s); });
+  return s;
+}
+
+const clone = (s) => JSON.parse(JSON.stringify(s));
+
+function checkTutorialProgress(s, ctx = {}) {
+  if (!s.tutorial?.active || s.tutorial.closing) return s;
+  const stepDef = TUTORIAL_STEPS[s.tutorial.step];
+  if (!stepDef || stepDef.requireNext) return s;
+  try { if (stepDef.trigger && stepDef.trigger(s, ctx)) s.tutorial.step = Math.min(TUTORIAL_STEPS.length - 1, s.tutorial.step + 1); } catch (e) {}
+  return s;
+}
+
+// ============ AI ============
+function runAI(s, difficulty) {
+  const my = s.currentPlayer;
+  const tiles = s.tiles;
+  const aggressive = difficulty === 'hard';
+  const medium = difficulty !== 'easy';
+  const myUnits = Object.entries(tiles).filter(([k, t]) => t.unit && t.owner === my && !t.unit.moved);
+  myUnits.sort((a, b) => b[1].unit.level - a[1].unit.level);
+  for (const [k, t] of myUnits) {
+    if (t.unit.moved) continue;
+    const reach = reachableFrom(s, k);
+    if (reach.size === 0) continue;
+    let best = null, bestScore = -999;
+    for (const rk of reach) {
+      const rt = tiles[rk];
+      let score = 0;
+      const isCapt = rt.owner !== my;
+      if (isCapt) {
+        score += 10;
+        if (rt.owner === -1) score += 2; else score += 8;
+        if (rt.unit) score += 5 + rt.unit.level * 3;
+        if (rt.struct === 'capital') score += 50;
+        if (rt.struct === 'farm') score += 15;
+        if (rt.struct === 'tower') score += 8;
+        if (rt.struct === 'stower') score += 18;
+        if (rt.struct === 'tree') score += 3;
+        let enemyAdjLv = 0;
+        for (const n of nbrs(rt.q, rt.r)) {
+          const nt = tiles[n.k];
+          if (nt && nt.owner !== my && nt.owner !== -1) {
+            if (nt.unit) enemyAdjLv = Math.max(enemyAdjLv, nt.unit.level);
+            if (nt.struct === 'tower') enemyAdjLv = Math.max(enemyAdjLv, 2);
+            if (nt.struct === 'stower') enemyAdjLv = Math.max(enemyAdjLv, 3);
+          }
+        }
+        if (enemyAdjLv >= t.unit.level) score -= 4;
+      } else {
+        if (rt.unit) score -= 5;
+        let frontAdj = 0;
+        for (const n of nbrs(rt.q, rt.r)) { const nt = tiles[n.k]; if (nt && nt.owner !== my) frontAdj++; }
+        score = frontAdj > 0 ? 1 : -2;
+      }
+      if (score > bestScore) { bestScore = score; best = rk; }
+    }
+    if (best && bestScore > (aggressive ? -1 : 0)) moveUnit(s, k, best);
+  }
+  const myProvs = Object.values(s.provinces).filter(p => p.owner === my);
+  for (const p of myProvs) {
+    if (!medium && Math.random() < 0.3) continue;
+    const threats = [];
+    for (const tk of p.tileKeys) {
+      const tt = tiles[tk];
+      let maxEn = 0;
+      for (const n of nbrs(tt.q, tt.r)) { const nt = tiles[n.k]; if (nt && nt.owner !== my && nt.owner !== -1) { if (nt.unit) maxEn = Math.max(maxEn, nt.unit.level); } }
+      if (maxEn > 0) { const myDef = protLevel(tiles, tt.q, tt.r, my); if (maxEn >= myDef) threats.push({ tk, need: maxEn + 1 }); }
+    }
+    threats.sort((a, b) => b.need - a.need);
+    for (const th of threats) {
+      if (p.gold < U_COST[Math.min(4, th.need)] && p.gold < TOWER_COST) break;
+      const need = Math.min(4, th.need);
+      if (p.gold >= U_COST[need]) {
+        const bt = tiles[th.tk];
+        if (!bt.unit && !bt.struct) { buyUnit(s, p.id, th.tk, need); continue; }
+        for (const n of nbrs(bt.q, bt.r)) { const nt = tiles[n.k]; if (nt && nt.pid === p.id && !nt.unit && !nt.struct) { buyUnit(s, p.id, n.k, need); break; } }
+      } else if (p.gold >= TOWER_COST && need <= 2) {
+        const bt = tiles[th.tk];
+        if (!bt.unit && !bt.struct) buyTower(s, p.id, th.tk, false);
+      }
+    }
+    const expTargets = [];
+    for (const tk of p.tileKeys) {
+      const tt = tiles[tk];
+      for (const n of nbrs(tt.q, tt.r)) {
+        const nt = tiles[n.k];
+        if (!nt || nt.owner === my || nt.struct === 'mountain') continue;
+        const prot = nt.owner === -1 ? 0 : protLevel(tiles, nt.q, nt.r, nt.owner);
+        expTargets.push({ tk: n.k, fromK: tk, prot, isEnemy: nt.owner !== -1, struct: nt.struct });
+      }
+    }
+    expTargets.sort((a, b) => {
+      let av = -a.prot * 3, bv = -b.prot * 3;
+      if (a.struct === 'capital') av += 20;
+      if (b.struct === 'capital') bv += 20;
+      if (a.struct === 'farm') av += 8;
+      if (b.struct === 'farm') bv += 8;
+      if (a.isEnemy) av += 3;
+      if (b.isEnemy) bv += 3;
+      return bv - av;
+    });
+    for (const exp of expTargets) {
+      const need = Math.min(4, exp.prot + 1);
+      if (p.gold < U_COST[need]) continue;
+      const bt = tiles[exp.fromK];
+      if (!bt.unit && !bt.struct) {
+        buyUnit(s, p.id, exp.fromK, need);
+        if (s.tiles[exp.fromK].unit) { const rr = reachableFrom(s, exp.fromK); if (rr.has(exp.tk)) moveUnit(s, exp.fromK, exp.tk); }
+      } else if (!bt.unit) {
+        for (const n of nbrs(bt.q, bt.r)) {
+          const nt = tiles[n.k];
+          if (nt && nt.pid === p.id && !nt.unit && !nt.struct) {
+            buyUnit(s, p.id, n.k, need);
+            const rr = reachableFrom(s, n.k);
+            if (rr.has(exp.tk)) moveUnit(s, n.k, exp.tk);
+            break;
+          }
+        }
+      }
+    }
+    if (medium && p.gold >= farmCost(s, p.id) + 10 && threats.length === 0) {
+      const inner = p.tileKeys.filter(k => {
+        const t = tiles[k];
+        let borderEnemy = false;
+        for (const n of nbrs(t.q, t.r)) { const nt = tiles[n.k]; if (nt && nt.owner !== my && nt.owner !== -1) borderEnemy = true; }
+        return !borderEnemy && canBuildFarm(s, p.id, k);
+      });
+      if (inner.length && Math.random() < (aggressive ? 0.7 : 0.4)) buyFarm(s, p.id, inner[0]);
+    }
+    if (aggressive && p.gold >= TOWER_COST) {
+      for (const th of threats.slice(0, 1)) {
+        if (p.gold < TOWER_COST) break;
+        const bt = tiles[th.tk];
+        if (!bt.unit && !bt.struct && Math.random() < 0.5) buyTower(s, p.id, th.tk, false);
+      }
+    }
+  }
+}
+
+// ============ RENDERING ============
+function hexPath(ctx, cx, cy, size) {
+  ctx.beginPath();
+  for (let i = 0; i < 6; i++) {
+    const a = Math.PI / 180 * (60 * i - 30);
+    const x = cx + size * Math.cos(a);
+    const y = cy + size * Math.sin(a);
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+}
+
+function drawGame(ctx, s, size, off, sel, reach, theme, viewPlayer, fog, highlightKey, anim, floats) {
+  const th = THEMES[theme] || THEMES.classic;
+  ctx.fillStyle = th.bg;
+  ctx.fillRect(0, 0, size.w, size.h);
+  const tiles = s.tiles;
+  let visible = null;
+  if (fog && viewPlayer != null) {
+    visible = new Set();
+    for (const k of Object.keys(tiles)) {
+      const t = tiles[k];
+      if (t.owner === viewPlayer) { visible.add(k); for (const n of nbrs(t.q, t.r)) if (tiles[n.k]) visible.add(n.k); }
+    }
+  }
+  for (const k of Object.keys(tiles)) {
+    const t = tiles[k];
+    const p = hexToPx(t.q, t.r);
+    const cx = p.x + off.x, cy = p.y + off.y;
+    const isVis = !visible || visible.has(k);
+    const isMtn = t.struct === 'mountain';
+    const owner = isMtn ? th.mountain : (t.owner === -1 ? th.neutral : th.players[t.owner]);
+    hexPath(ctx, cx, cy, HEX_SIZE - 0.5);
+    if (!isVis) { ctx.fillStyle = '#000'; ctx.globalAlpha = 0.65; ctx.fill(); ctx.globalAlpha = 1; }
+    else { ctx.fillStyle = owner.light; ctx.fill(); ctx.strokeStyle = owner.dark; ctx.lineWidth = 0.5; ctx.stroke(); }
+  }
+  ctx.lineWidth = 2.5;
+  for (const k of Object.keys(tiles)) {
+    const t = tiles[k];
+    if (t.owner < 0 || t.struct === 'mountain') continue;
+    if (visible && !visible.has(k)) continue;
+    const p = hexToPx(t.q, t.r);
+    const cx = p.x + off.x, cy = p.y + off.y;
+    for (let i = 0; i < 6; i++) {
+      const dir = DIRS[i];
+      const nk = K(t.q + dir[0], t.r + dir[1]);
+      const nt = tiles[nk];
+      if (nt && nt.owner === t.owner && nt.struct !== 'mountain') continue;
+      const a1 = Math.PI / 180 * (60 * i - 30);
+      const a2 = Math.PI / 180 * (60 * (i + 1) - 30);
+      ctx.beginPath();
+      ctx.moveTo(cx + (HEX_SIZE - 0.5) * Math.cos(a1), cy + (HEX_SIZE - 0.5) * Math.sin(a1));
+      ctx.lineTo(cx + (HEX_SIZE - 0.5) * Math.cos(a2), cy + (HEX_SIZE - 0.5) * Math.sin(a2));
+      ctx.strokeStyle = th.players[t.owner].dark;
+      ctx.stroke();
+    }
+  }
+  if (s.threats && viewPlayer === 0 && !anim) {
+    for (const [tk, threat] of Object.entries(s.threats)) {
+      const t = tiles[tk];
+      if (!t) continue;
+      const p = hexToPx(t.q, t.r);
+      const cx = p.x + off.x, cy = p.y + off.y;
+      const pulse = 0.5 + 0.5 * Math.sin(Date.now() / 300);
+      hexPath(ctx, cx, cy, HEX_SIZE - 3);
+      ctx.strokeStyle = `rgba(239, 68, 68, ${0.5 + pulse * 0.5})`;
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+      ctx.fillStyle = '#dc2626';
+      ctx.beginPath();
+      ctx.arc(cx + HEX_SIZE * 0.6, cy - HEX_SIZE * 0.6, 7, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 9px system-ui';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(U_ICON[threat.maxLevel] || '!', cx + HEX_SIZE * 0.6, cy - HEX_SIZE * 0.6);
+    }
+  }
+  if (reach && reach.size) {
+    for (const k of reach) {
+      const t = tiles[k];
+      if (!t) continue;
+      const p = hexToPx(t.q, t.r);
+      hexPath(ctx, p.x + off.x, p.y + off.y, HEX_SIZE - 2);
+      ctx.fillStyle = 'rgba(253, 224, 71, 0.4)'; ctx.fill();
+      ctx.strokeStyle = '#fde047'; ctx.lineWidth = 2; ctx.stroke();
+    }
+  }
+  if (highlightKey && Array.isArray(highlightKey)) {
+    for (const hk of highlightKey) {
+      const t = tiles[hk];
+      if (!t) continue;
+      const p = hexToPx(t.q, t.r);
+      hexPath(ctx, p.x + off.x, p.y + off.y, HEX_SIZE - 1);
+      const pulse = 0.5 + 0.5 * Math.sin(Date.now() / 250);
+      ctx.strokeStyle = `rgba(253, 224, 71, ${0.6 + pulse * 0.4})`;
+      ctx.lineWidth = 3 + pulse * 2;
+      ctx.stroke();
+    }
+  }
+  if (sel && tiles[sel]) {
+    const t = tiles[sel];
+    const p = hexToPx(t.q, t.r);
+    hexPath(ctx, p.x + off.x, p.y + off.y, HEX_SIZE - 1);
+    ctx.strokeStyle = '#fbbf24'; ctx.lineWidth = 3; ctx.stroke();
+  }
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.font = `${HEX_SIZE * 0.85}px sans-serif`;
+  const animSkipKey = anim?.fromK;
+  for (const k of Object.keys(tiles)) {
+    if (visible && !visible.has(k)) continue;
+    const t = tiles[k];
+    const p = hexToPx(t.q, t.r);
+    const cx = p.x + off.x, cy = p.y + off.y;
+    if (t.struct === 'mountain') ctx.fillText('🏔️', cx, cy + 1);
+    else if (t.struct === 'tree') ctx.fillText('🌲', cx, cy + 1);
+    else if (t.struct === 'grave') ctx.fillText('💀', cx, cy + 1);
+    else if (t.struct === 'tower') ctx.fillText('🗼', cx, cy + 1);
+    else if (t.struct === 'stower') ctx.fillText('🏯', cx, cy + 1);
+    else if (t.struct === 'farm') ctx.fillText('🌾', cx, cy + 1);
+    else if (t.struct === 'capital' && !t.unit) ctx.fillText('🏰', cx, cy + 1);
+    if (t.unit && k !== animSkipKey) {
+      ctx.fillText(U_ICON[t.unit.level], cx, cy + 1);
+      if (t.unit.moved) {
+        ctx.fillStyle = 'rgba(0,0,0,0.4)';
+        hexPath(ctx, cx, cy, HEX_SIZE - 2); ctx.fill();
+        ctx.fillStyle = '#fff';
+      }
+    }
+  }
+  if (anim && anim.fromK && anim.toK && anim.progress != null) {
+    const from = tiles[anim.fromK] || anim.fromTile;
+    const to = tiles[anim.toK];
+    if (from && to) {
+      const p1 = hexToPx(from.q, from.r);
+      const p2 = hexToPx(to.q, to.r);
+      const ease = anim.progress < 0.5 ? 2 * anim.progress * anim.progress : 1 - Math.pow(-2 * anim.progress + 2, 2) / 2;
+      const cx = (p1.x + (p2.x - p1.x) * ease) + off.x;
+      const cy = (p1.y + (p2.y - p1.y) * ease) + off.y;
+      hexPath(ctx, p2.x + off.x, p2.y + off.y, HEX_SIZE - 2);
+      ctx.fillStyle = `rgba(253, 224, 71, ${0.3 + 0.3 * (1 - anim.progress)})`;
+      ctx.fill();
+      ctx.fillText(U_ICON[anim.unitLevel], cx, cy + 1);
+    }
+  }
+  ctx.font = 'bold 10px system-ui, sans-serif';
+  for (const p of Object.values(s.provinces)) {
+    if (!p.capKey || p.size < 2) continue;
+    if (visible && !visible.has(p.capKey)) continue;
+    const t = tiles[p.capKey];
+    if (!t) continue;
+    const px = hexToPx(t.q, t.r);
+    const cx = px.x + off.x, cy = px.y + off.y + HEX_SIZE * 0.55;
+    ctx.fillStyle = '#000'; ctx.globalAlpha = 0.7;
+    ctx.fillRect(cx - 14, cy - 7, 28, 13);
+    ctx.globalAlpha = 1; ctx.fillStyle = '#fbbf24';
+    ctx.fillText(`💰${p.gold}`, cx, cy);
+  }
+  if (floats && floats.length) {
+    for (const f of floats) {
+      const age = (Date.now() - f.t) / 900;
+      if (age > 1) continue;
+      const alpha = age < 0.3 ? age / 0.3 : 1 - (age - 0.3) / 0.7;
+      ctx.font = `bold ${12 + (1 - age) * 4}px system-ui`;
+      ctx.fillStyle = f.color;
+      ctx.globalAlpha = Math.max(0, alpha);
+      ctx.textAlign = 'center';
+      ctx.fillText(f.text, f.x + off.x, f.y + off.y - age * 25);
+      ctx.globalAlpha = 1;
+    }
+  }
+}
+
+// ============ STORAGE ============
+const USER_KEY = 'hexfall:user:v3';
+const DEFAULT_USER = {
+  coins: 50, theme: 'classic', ownedThemes: ['classic'],
+  stats: { wins: 0, losses: 0, plays: 0, streak: 0, maxStreak: 0 },
+  achievements: [], lastDaily: null, dailyStreak: 0, dailyChallengeDone: null,
+  campaignStars: {}, userId: null, nickname: '', myMatches: [],
+  dailyAdsWatched: 0, lastAdDate: null, tutorialDone: false,
+};
+const genUserId = () => 'u' + Math.random().toString(36).slice(2, 10);
+async function loadUser() {
+  try {
+    const r = await window.storage.get(USER_KEY);
+    const base = { ...DEFAULT_USER };
+    const u = r ? { ...base, ...JSON.parse(r.value) } : base;
+    if (!u.userId) u.userId = genUserId();
+    return u;
+  } catch { return { ...DEFAULT_USER, userId: genUserId() }; }
+}
+async function saveUser(u) { try { await window.storage.set(USER_KEY, JSON.stringify(u)); } catch {} }
+
+// ============ MAIN APP ============
+function Hexfall() {
+  const [screen, setScreen] = useState('menu');
+  const [state, setState] = useState(null);
+  const [sel, setSel] = useState(null);
+  const [reach, setReach] = useState(new Set());
+  const [user, setUser] = useState(null);
+  const [toast, setToast] = useState(null);
+  const [historyStack, setHistoryStack] = useState([]);
+  const [buildMode, setBuildMode] = useState(null);
+  const [turnHistory, setTurnHistory] = useState([]);
+  const [replayMode, setReplayMode] = useState(false);
+  const [replayTurn, setReplayTurn] = useState(0);
+  const [replayPlaying, setReplayPlaying] = useState(false);
+  const [setupMode, setSetupMode] = useState('solo');
+  const [setupOpponents, setSetupOpponents] = useState(1);
+  const [setupDifficulty, setSetupDifficulty] = useState('medium');
+  const [setupFog, setSetupFog] = useState(false);
+  const [setupLocalCount, setSetupLocalCount] = useState(2);
+  const [setupShape, setSetupShape] = useState('classic');
+  const [nicknameInput, setNicknameInput] = useState('');
+  const [muted, setMuted] = useState(false);
+  const [anim, setAnim] = useState(null);
+  const [floats, setFloats] = useState([]);
+  const [pulseTick, setPulseTick] = useState(0);
+
+  const canvasRef = useRef(null);
+  const containerRef = useRef(null);
+  const [csize, setCsize] = useState({ w: 400, h: 440 });
+  const aiRunningRef = useRef(false);
+  const replayTimerRef = useRef(null);
+
+  const addFloat = useCallback((q, r, text, color = '#fbbf24') => {
+    const p = hexToPx(q, r);
+    setFloats(f => [...f.slice(-8), { x: p.x, y: p.y, text, color, t: Date.now(), id: Math.random() }]);
+  }, []);
+  useEffect(() => {
+    if (!floats.length) return;
+    const iv = setInterval(() => setFloats(f => f.filter(x => Date.now() - x.t < 900)), 200);
+    return () => clearInterval(iv);
+  }, [floats.length]);
+
+  useEffect(() => { loadUser().then(u => {
+    const t = todayStr();
+    if (u.lastDaily !== t) {
+      const y = new Date(); y.setDate(y.getDate() - 1);
+      const yStr = y.toISOString().slice(0, 10);
+      u.dailyStreak = (u.lastDaily === yStr) ? (u.dailyStreak || 0) + 1 : 1;
+      u.lastDaily = t;
+      const reward = 20 + Math.min(u.dailyStreak * 5, 50);
+      u.coins += reward;
+      setToast({ type: 'daily', msg: `Daily bonus: +${reward} coins 🎁 (streak ${u.dailyStreak})` });
+      if (u.dailyStreak >= 7 && !u.achievements.includes('daily7')) { u.achievements.push('daily7'); u.coins += 500; }
+    }
+    if (u.lastAdDate !== t) { u.dailyAdsWatched = 0; u.lastAdDate = t; }
+    saveUser(u); setUser(u);
+    if (!u.nickname) setNicknameInput('Player');
+  }); loadAudioMuted().then(() => setMuted(audioMuted)); }, []);
+
+  const toggleMute = () => {
+    audioMuted = !audioMuted;
+    setMuted(audioMuted);
+    saveAudioMuted();
+    if (!audioMuted) SFX.tap();
+  };
+
+  useEffect(() => {
+    const update = () => {
+      const el = containerRef.current;
+      if (!el) return;
+      const w = Math.min(el.clientWidth - 16, 640);
+      const h = Math.min(Math.max(320, window.innerHeight - 300), 480);
+      setCsize({ w, h });
+    };
+    update();
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
+  }, [screen]);
+
+  const camOff = useMemo(() => {
+    const st = replayMode && turnHistory[replayTurn] ? turnHistory[replayTurn] : state;
+    if (!st) return { x: 0, y: 0 };
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const k of Object.keys(st.tiles)) {
+      const t = st.tiles[k];
+      const p = hexToPx(t.q, t.r);
+      if (p.x < minX) minX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y > maxY) maxY = p.y;
+    }
+    return { x: (csize.w - (maxX - minX)) / 2 - minX, y: (csize.h - (maxY - minY)) / 2 - minY };
+  }, [state, csize, replayMode, turnHistory, replayTurn]);
+
+  const tutorialHighlight = useMemo(() => {
+    if (!state?.tutorial?.active) return null;
+    const stepDef = TUTORIAL_STEPS[state.tutorial.step];
+    if (!stepDef) return null;
+    if (stepDef.highlight === 'ownTiles') return Object.keys(state.tiles).filter(k => state.tiles[k].owner === 0 && !state.tiles[k].unit && !state.tiles[k].struct);
+    if (stepDef.highlight === 'reachable') {
+      for (const [k, t] of Object.entries(state.tiles)) {
+        if (t.owner === 0 && t.unit && !t.unit.moved) {
+          const reach = reachableFrom(state, k);
+          return [...reach].filter(rk => state.tiles[rk]?.owner === -1);
+        }
+      }
+    }
+    return null;
+  }, [state, pulseTick]);
+
+  const tutorialButtonHint = state?.tutorial?.active ? TUTORIAL_STEPS[state.tutorial.step]?.highlight : null;
+
+  useEffect(() => {
+    const c = canvasRef.current;
+    const st = replayMode && turnHistory[replayTurn] ? turnHistory[replayTurn] : state;
+    if (!c || !st) return;
+    const dpr = window.devicePixelRatio || 1;
+    c.width = csize.w * dpr; c.height = csize.h * dpr;
+    c.style.width = csize.w + 'px'; c.style.height = csize.h + 'px';
+    const ctx = c.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    drawGame(ctx, st, csize, camOff, replayMode ? null : sel, replayMode ? new Set() : reach, user?.theme || 'classic', 0, st.fogOfWar && !replayMode, tutorialHighlight, anim, floats);
+  }, [state, csize, camOff, sel, reach, user?.theme, replayMode, turnHistory, replayTurn, tutorialHighlight, pulseTick, anim, floats]);
+
+  useEffect(() => {
+    if (!anim && !floats.length && !state?.tutorial?.active && !(state?.threats && Object.keys(state.threats).length)) return;
+    let raf;
+    const tick = () => { setPulseTick(t => t + 1); raf = requestAnimationFrame(tick); };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [anim, floats.length, state?.tutorial?.active, state?.threats]);
+
+  useEffect(() => {
+    if (!state || state.gameOver || aiRunningRef.current || replayMode) return;
+    const cp = state.currentPlayer;
+    const diff = state.aiPlayers?.[cp];
+    if (!diff) return;
+    aiRunningRef.current = true;
+    let cancelled = false;
+    (async () => {
+      await new Promise(r => setTimeout(r, 300));
+      if (cancelled) return;
+      const before = clone(state);
+      const after = clone(state);
+      runAI(after, diff);
+      const moves = [];
+      for (const k of Object.keys(before.tiles)) {
+        const bt = before.tiles[k];
+        const at = after.tiles[k];
+        if (bt.unit && bt.owner === cp && (!at.unit || at.owner !== cp)) {
+          let bestMatch = null, bestD = 99;
+          for (const nk of Object.keys(after.tiles)) {
+            if (nk === k) continue;
+            const atn = after.tiles[nk];
+            const btn = before.tiles[nk];
+            if (atn.unit && atn.owner === cp && (!btn.unit || btn.unit.level < atn.unit.level)) {
+              const d = hexD(bt, atn);
+              if (d < bestD) { bestD = d; bestMatch = nk; }
+            }
+          }
+          if (bestMatch) moves.push({ fromK: k, toK: bestMatch, level: bt.unit.level });
+        }
+      }
+      for (let i = 0; i < Math.min(moves.length, 4); i++) {
+        if (cancelled) return;
+        const m = moves[i];
+        const toTile = before.tiles[m.toK];
+        const isCaptureOnMe = toTile && toTile.owner === 0;
+        if (isCaptureOnMe) SFX.enemyCapture(); else SFX.move();
+        await new Promise(resolve => {
+          const duration = 260;
+          const startTs = performance.now();
+          const step = (ts) => {
+            if (cancelled) return resolve();
+            const progress = Math.min(1, (ts - startTs) / duration);
+            setAnim({ fromK: m.fromK, toK: m.toK, unitLevel: m.level, progress, fromTile: before.tiles[m.fromK] });
+            if (progress < 1) requestAnimationFrame(step);
+            else { setAnim(null); resolve(); }
+          };
+          requestAnimationFrame(step);
+        });
+        const tt = after.tiles[m.toK];
+        if (tt && before.tiles[m.toK]?.owner !== cp) addFloat(tt.q, tt.r, '💥', '#ef4444');
+        await new Promise(r => setTimeout(r, 80));
+      }
+      if (cancelled) return;
+      endTurn(after);
+      checkTutorialProgress(after);
+      setTurnHistory(h => [...h, stripStateForSnapshot(after)]);
+      setState(after);
+      setSel(null); setReach(new Set());
+      if (!after.aiPlayers?.[after.currentPlayer] && !after.gameOver) {
+        setTimeout(() => SFX.turnStart(), 150);
+        if (after.threats && Object.keys(after.threats).length > 0) setTimeout(() => SFX.threat(), 400);
+      }
+      aiRunningRef.current = false;
+    })();
+    return () => { cancelled = true; aiRunningRef.current = false; };
+  }, [state?.version, replayMode]);
+
+  useEffect(() => {
+    if (!state?.tutorial?.active) return;
+    if (state.gameOver && state.tutorial.step < TUTORIAL_STEPS.length - 1) {
+      const s2 = clone(state);
+      s2.tutorial.step = TUTORIAL_STEPS.length - 1;
+      setState(s2);
+      return;
+    }
+    const stepDef = TUTORIAL_STEPS[state.tutorial.step];
+    if (stepDef?.autoClose && !state.tutorial.closing) {
+      const s2 = clone(state);
+      s2.tutorial.closing = true;
+      setState(s2);
+      setTimeout(() => {
+        setState(cur => { if (!cur) return cur; const s3 = clone(cur); if (s3.tutorial) s3.tutorial.active = false; return s3; });
+        if (user && !user.tutorialDone) {
+          const u = { ...user, tutorialDone: true, coins: user.coins + 100 };
+          saveUser(u); setUser(u);
+          SFX.achievement();
+          setToast({ type: 'win', msg: 'Tutorial complete! +100 💰' });
+        }
+      }, stepDef.autoClose);
+    }
+  }, [state?.tutorial?.step, state?.gameOver]);
+
+  useEffect(() => {
+    if (!replayPlaying) return;
+    if (replayTurn >= turnHistory.length - 1) { setReplayPlaying(false); return; }
+    replayTimerRef.current = setTimeout(() => setReplayTurn(t => t + 1), 600);
+    return () => clearTimeout(replayTimerRef.current);
+  }, [replayPlaying, replayTurn, turnHistory.length]);
+
+  useEffect(() => {
+    if (!state?.gameOver || !user) return;
+    const iWonQuick = state.winner === 0;
+    if (iWonQuick) SFX.win(); else SFX.lose();
+    if (state.tutorial) return;
+    const u = { ...user };
+    u.stats = { ...u.stats, plays: u.stats.plays + 1 };
+    if (iWonQuick) {
+      u.stats.wins++;
+      u.stats.streak = u.stats.streak + 1;
+      u.stats.maxStreak = Math.max(u.stats.maxStreak, u.stats.streak);
+      let earned = 30;
+      if (state.aiPlayers?.[1] === 'hard') earned = 80;
+      else if (state.aiPlayers?.[1] === 'medium') earned = 50;
+      if (state.blitz && state.turn <= 10) earned += 30;
+      const objCoins = (state.objectives || []).filter(o => o.done).reduce((sum, o) => sum + o.reward, 0);
+      earned += objCoins;
+      if (state.campaignLevel) {
+        const lv = CAMPAIGN.find(l => l.id === state.campaignLevel);
+        if (lv) {
+          let stars = 1;
+          if (state.turn <= Math.floor(lv.targetTurns * 0.65)) stars = 3;
+          else if (state.turn <= lv.targetTurns) stars = 2;
+          const existing = u.campaignStars[lv.id] || 0;
+          const newStars = Math.max(existing, stars);
+          u.campaignStars[lv.id] = newStars;
+          earned = 50 * newStars + (existing < newStars ? 50 : 0);
+          setToast({ type: 'win', msg: `⭐×${newStars} · Campaign ${lv.id} cleared! +${earned} coins` });
+          if (stars === 3 && !u.achievements.includes('perfect')) { u.achievements.push('perfect'); u.coins += 200; }
+          const completed = Object.keys(u.campaignStars).length;
+          if (completed >= 5 && !u.achievements.includes('campaign5')) { u.achievements.push('campaign5'); u.coins += 300; }
+          if (completed >= 10 && !u.achievements.includes('campaign10')) { u.achievements.push('campaign10'); u.coins += 1000; }
+        }
+      } else {
+        setToast({ type: 'win', msg: `Victory! +${earned} coins 🏆` });
+      }
+      u.coins += earned;
+      const unlock = (id) => { if (!u.achievements.includes(id)) {
+        u.achievements.push(id);
+        const ach = ACHIEVEMENTS.find(a => a.id === id);
+        if (ach) { u.coins += ach.reward; setTimeout(() => { SFX.achievement(); setToast({ type: 'ach', msg: `${ach.icon} ${ach.name} +${ach.reward}` }); }, 1400); }
+      }};
+      if (u.stats.wins === 1) unlock('first_win');
+      if (state.turn <= 15) unlock('quick_win');
+      if (state.aiPlayers?.[1] === 'hard') unlock('win_hard');
+      if (u.stats.streak >= 3) unlock('streak3');
+      const myTiles = Object.values(state.tiles).filter(t => t.owner === 0).length;
+      if (myTiles >= 30) unlock('empire');
+      const maxGold = Math.max(0, ...Object.values(state.provinces).filter(p => p.owner === 0).map(p => p.gold));
+      if (maxGold >= 80) unlock('rich');
+      if (earned > 0) SFX.coins();
+    } else {
+      u.stats.losses++;
+      u.stats.streak = 0;
+      setToast({ type: 'loss', msg: state.campaignLevel ? 'Defeated. Try again?' : 'Defeated. Keep training.' });
+    }
+    saveUser(u); setUser(u);
+  }, [state?.gameOver]);
+
+  function stripStateForSnapshot(s) {
+    return {
+      tiles: JSON.parse(JSON.stringify(s.tiles)),
+      provinces: JSON.parse(JSON.stringify(s.provinces)),
+      currentPlayer: s.currentPlayer, turn: s.turn, numPlayers: s.numPlayers,
+      alive: [...s.alive], winner: s.winner, gameOver: s.gameOver,
+      fogOfWar: false, aiPlayers: s.aiPlayers, mode: s.mode,
+    };
+  }
+
+  const isMyTurn = !state ? false : state.mode === 'local' ? true : !state.aiPlayers?.[state.currentPlayer];
+
+  const commit = (s) => { s.version = (s.version || 0) + 1; setState(s); };
+
+  const pushHistory = () => { if (!state) return; setHistoryStack(h => [...h.slice(-5), clone(state)]); };
+
+  const handleCanvasClick = (e) => {
+    if (replayMode || !state || state.gameOver || !isMyTurn) return;
+    const rect = canvasRef.current.getBoundingClientRect();
+    const x = (e.clientX - rect.left) - camOff.x;
+    const y = (e.clientY - rect.top) - camOff.y;
+    const hc = pxToHex(x, y);
+    const k = K(hc.q, hc.r);
+    const t = state.tiles[k];
+    if (!t || t.struct === 'mountain') { setSel(null); setReach(new Set()); setBuildMode(null); return; }
+    const cur = state.currentPlayer;
+    if (buildMode && t.owner === cur) {
+      const s = clone(state); pushHistory();
+      const beforeStruct = s.tiles[k].struct;
+      if (buildMode === 'tower') buyTower(s, t.pid, k, false);
+      else if (buildMode === 'stower') buyTower(s, t.pid, k, true);
+      else if (buildMode === 'farm') buyFarm(s, t.pid, k);
+      if (s.tiles[k].struct && s.tiles[k].struct !== beforeStruct) {
+        SFX.build();
+        addFloat(t.q, t.r, buildMode === 'farm' ? '🌾 +4/turn' : '🛡️ built!', '#10b981');
+        computeThreats(s, 0);
+      } else {
+        SFX.error();
+        setToast({ type: 'info', msg: "Can't build here" });
+      }
+      setBuildMode(null); commit(s); setSel(null); setReach(new Set());
+      return;
+    }
+    if (sel && state.tiles[sel]?.unit && state.tiles[sel].owner === cur && reach.has(k)) {
+      pushHistory();
+      const unitLevel = state.tiles[sel].unit.level;
+      const toTile = state.tiles[k];
+      const wasOwned = toTile.owner;
+      const wasStruct = toTile.struct;
+      const isMerge = toTile.owner === cur && toTile.unit;
+      SFX.move();
+      const fromTile = { ...state.tiles[sel] };
+      setAnim({ fromK: sel, toK: k, unitLevel, progress: 0, fromTile });
+      const startTs = performance.now();
+      const duration = 240;
+      const step = (ts) => {
+        const progress = Math.min(1, (ts - startTs) / duration);
+        setAnim({ fromK: sel, toK: k, unitLevel, progress, fromTile });
+        if (progress < 1) requestAnimationFrame(step);
+        else {
+          setAnim(null);
+          const s = clone(state);
+          moveUnit(s, sel, k);
+          computeThreats(s, 0);
+          if (isMerge) SFX.merge();
+          else if (wasOwned !== cur && wasOwned !== -1) SFX.capture();
+          else if (wasOwned === -1) SFX.select();
+          if (wasStruct === 'capital' && wasOwned !== cur && wasOwned !== -1) SFX.capitalLost();
+          if (wasStruct === 'tree') SFX.coins();
+          if (s.objectives) {
+            for (const obj of s.objectives) {
+              if (obj.done) continue;
+              const tr = obj.track(s, obj.tracker);
+              obj.tracker = tr;
+              const was = obj.progress;
+              obj.progress = Math.min(obj.target, tr.progress);
+              if (obj.progress > was && obj.progress >= obj.target) {
+                obj.done = true;
+                SFX.objective();
+                setTimeout(() => setToast({ type: 'ach', msg: `Objective: ${obj.name} +${obj.reward}💰` }), 100);
+              }
+            }
+          }
+          checkTutorialProgress(s, { selectedKey: k });
+          if (wasOwned !== cur) addFloat(toTile.q, toTile.r, 'Captured!', '#10b981');
+          if (wasStruct === 'tree') addFloat(toTile.q, toTile.r, '+3💰', '#fbbf24');
+          if (wasStruct === 'capital' && wasOwned !== cur && wasOwned !== -1) addFloat(toTile.q, toTile.r, 'Capital! 💰reset', '#dc2626');
+          commit(s);
+          setSel(null); setReach(new Set());
+        }
+      };
+      requestAnimationFrame(step);
+      return;
+    }
+    if (t.owner === cur) {
+      if (sel !== k) SFX.select();
+      setSel(k);
+      if (t.unit) setReach(reachableFrom(state, k)); else setReach(new Set());
+      if (state.tutorial?.active) {
+        const s = clone(state);
+        checkTutorialProgress(s, { selectedKey: k });
+        if (s.tutorial.step !== state.tutorial.step) setState(s);
+      }
+    } else { setSel(null); setReach(new Set()); }
+  };
+
+  const handleEndTurn = () => {
+    if (!state || !isMyTurn || state.gameOver) return;
+    SFX.endTurn();
+    setHistoryStack([]);
+    const s = clone(state);
+    endTurn(s);
+    checkTutorialProgress(s);
+    setTurnHistory(h => [...h, stripStateForSnapshot(s)]);
+    commit(s);
+    setSel(null); setReach(new Set()); setBuildMode(null);
+    if (!s.aiPlayers?.[s.currentPlayer]) setTimeout(() => SFX.turnStart(), 100);
+  };
+
+  const handleUndo = () => {
+    if (!state || !historyStack.length || state.undoLeft <= 0) return;
+    SFX.undo();
+    const prev = historyStack[historyStack.length - 1];
+    prev.undoLeft = Math.max(0, state.undoLeft - 1);
+    setHistoryStack(h => h.slice(0, -1));
+    setState(prev);
+    setSel(null); setReach(new Set()); setBuildMode(null);
+  };
+
+  const handleBuy = (action) => {
+    if (!sel || !state || !isMyTurn) return;
+    const t = state.tiles[sel];
+    if (!t || t.owner !== state.currentPlayer || !t.pid) return;
+    const prov = state.provinces[t.pid];
+    if (typeof action === 'number' && prov.gold < U_COST[action]) {
+      SFX.error();
+      setToast({ type: 'info', msg: `Need 💰${U_COST[action]}, have 💰${prov.gold}` });
+      return;
+    }
+    pushHistory();
+    const s = clone(state);
+    const beforeUnit = s.tiles[sel].unit;
+    if (typeof action === 'number') buyUnit(s, t.pid, sel, action);
+    const afterUnit = s.tiles[sel].unit;
+    if (beforeUnit && afterUnit && afterUnit.level > beforeUnit.level) SFX.merge();
+    else SFX.buy();
+    computeThreats(s, 0);
+    checkTutorialProgress(s, { selectedKey: sel });
+    commit(s);
+    const newT = s.tiles[sel];
+    if (newT.unit) setReach(reachableFrom(s, sel)); else setReach(new Set());
+  };
+
+  const skipTutorial = () => {
+    if (!state?.tutorial) return;
+    const s = clone(state);
+    s.tutorial.active = false;
+    setState(s);
+    if (user && !user.tutorialDone) { const u = { ...user, tutorialDone: true }; saveUser(u); setUser(u); }
+  };
+
+  const startTutorial = () => {
+    const s = initGame(2, { aiPlayers: { 1: 'easy' }, mode: 'tutorial', tutorial: true, undoMax: 3 });
+    s.tutorial.initialTiles = Object.values(s.tiles).filter(t => t.owner === 0).length;
+    setState(s); setHistoryStack([]); setTurnHistory([stripStateForSnapshot(s)]);
+    setReplayMode(false); setReplayTurn(0);
+    setScreen('game'); setSel(null); setReach(new Set());
+  };
+  const startSolo = () => {
+    const ai = {};
+    for (let i = 1; i <= setupOpponents; i++) ai[i] = setupDifficulty;
+    const s = initGame(setupOpponents + 1, { aiPlayers: ai, fogOfWar: setupFog, mode: 'solo', shape: setupShape });
+    setState(s); setHistoryStack([]); setTurnHistory([stripStateForSnapshot(s)]);
+    setReplayMode(false); setReplayTurn(0);
+    setScreen('game'); setSel(null); setReach(new Set());
+  };
+  const startBlitz = () => {
+    const s = initGame(2, { aiPlayers: { 1: 'medium' }, mode: 'solo', shape: 'classic', blitz: true, undoMax: 1 });
+    setState(s); setHistoryStack([]); setTurnHistory([stripStateForSnapshot(s)]);
+    setReplayMode(false); setReplayTurn(0);
+    setScreen('game'); setSel(null); setReach(new Set());
+  };
+  const startLocal = () => {
+    const s = initGame(setupLocalCount, { mode: 'local', shape: setupShape });
+    setState(s); setHistoryStack([]); setTurnHistory([stripStateForSnapshot(s)]);
+    setReplayMode(false); setReplayTurn(0);
+    setScreen('game'); setSel(null); setReach(new Set());
+  };
+  const startCampaign = (lv) => {
+    const ai = {};
+    lv.ai.forEach((d, i) => { ai[i + 1] = d; });
+    const s = initGame(lv.ai.length + 1, { aiPlayers: ai, fogOfWar: lv.fog, mode: 'campaign', seed: lv.seed, campaignLevel: lv.id, shape: lv.shape });
+    setState(s); setHistoryStack([]); setTurnHistory([stripStateForSnapshot(s)]);
+    setReplayMode(false); setReplayTurn(0);
+    setScreen('game'); setSel(null); setReach(new Set());
+  };
+  const startDaily = () => {
+    if (user?.dailyChallengeDone === todayStr()) { setToast({ type: 'info', msg: 'Daily already completed. Come back tomorrow!' }); return; }
+    const shapes = ['classic', 'rect', 'divide', 'isles'];
+    const dayShape = shapes[new Date().getDay() % shapes.length];
+    const s = initGame(3, { aiPlayers: { 1: 'hard', 2: 'hard' }, mode: 'daily', seed: dateSeed(), undoMax: 1, shape: dayShape });
+    setState(s); setHistoryStack([]); setTurnHistory([stripStateForSnapshot(s)]);
+    setReplayMode(false); setReplayTurn(0);
+    setScreen('game'); setSel(null); setReach(new Set());
+  };
+
+  const backToMenu = () => {
+    setScreen('menu'); setState(null); setSel(null); setReach(new Set());
+    setHistoryStack([]); setBuildMode(null); setReplayMode(false);
+    setTurnHistory([]); setReplayTurn(0); setReplayPlaying(false);
+  };
+
+  useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 3200); return () => clearTimeout(t); }, [toast]);
+
+  const setNickname = async () => {
+    const name = nicknameInput.trim().slice(0, 16) || 'Player';
+    const u = { ...user, nickname: name };
+    await saveUser(u); setUser(u);
+    setToast({ type: 'info', msg: `Nickname set: ${name}` });
+  };
+
+  const th = THEMES[user?.theme || 'classic'];
+
+  if (!user) return <div style={{background:'#0f172a',minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',color:'#fff'}}>Loading…</div>;
+
+  // MENU
+  if (screen === 'menu') {
+    const dailyDone = user.dailyChallengeDone === todayStr();
+    return (
+      <div style={{ minHeight: '100vh', background: `linear-gradient(135deg, ${th.bg}, ${th.panel})`, color: '#fff', padding: 16, paddingBottom: 32 }}>
+        <div className="max-w-md mx-auto">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <span className="text-3xl">⚔️</span>
+              <div>
+                <h1 className="text-xl font-bold">Hexfall</h1>
+                <div className="text-xs text-slate-400">{user.nickname || 'Turn-based hex conquest'}</div>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 text-sm">
+              <button onClick={toggleMute} className="px-2 py-1 rounded bg-slate-700 text-xs">{muted ? '🔇' : '🔊'}</button>
+              <div className="flex items-center gap-1"><span>💰</span><b>{user.coins}</b></div>
+              <button onClick={() => setScreen('shop')} className="px-2 py-1 rounded bg-slate-700 text-xs">Shop</button>
+            </div>
+          </div>
+
+          <div className="rounded-xl p-3 mb-3" style={{ background: th.panel, border: `1px solid ${th.border}` }}>
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-xs text-slate-400">Daily streak 🔥</div>
+              <div className="text-xs font-bold">{user.dailyStreak} day{user.dailyStreak !== 1 ? 's' : ''}</div>
+            </div>
+            <div className="flex gap-1">
+              {[...Array(7)].map((_, i) => (<div key={i} className="flex-1 h-1.5 rounded" style={{ background: i < user.dailyStreak ? '#f59e0b' : '#334155' }} />))}
+            </div>
+          </div>
+
+          {!user.tutorialDone && (
+            <button onClick={startTutorial}
+              className="w-full py-3 mb-2 rounded-xl text-white font-semibold text-left px-4 flex items-center gap-3 shadow-lg animate-pulse"
+              style={{ background: 'linear-gradient(90deg,#10b981,#059669)' }}>
+              <span className="text-2xl">🎓</span>
+              <div><div>Play Tutorial</div><div className="text-xs opacity-80 font-normal">Learn in ~5 minutes · +100 💰 reward</div></div>
+            </button>
+          )}
+
+          <div className="space-y-2 mb-3">
+            <button onClick={startBlitz}
+              className="w-full py-3 rounded-xl text-white font-semibold text-left px-4 flex items-center gap-3 shadow-lg"
+              style={{ background: 'linear-gradient(90deg,#ef4444,#dc2626)' }}>
+              <span className="text-2xl">⚡</span>
+              <div><div>Blitz</div><div className="text-xs opacity-80 font-normal">~3 minute match · single opponent</div></div>
+            </button>
+            <button onClick={() => setScreen('campaign')}
+              className="w-full py-3 rounded-xl text-white font-semibold text-left px-4 flex items-center gap-3 shadow-lg"
+              style={{ background: 'linear-gradient(90deg,#f59e0b,#ea580c)' }}>
+              <span className="text-2xl">🗺️</span>
+              <div className="flex-1">
+                <div>Campaign</div>
+                <div className="text-xs opacity-80 font-normal">{Object.keys(user.campaignStars || {}).length} / 10 cleared · {Object.values(user.campaignStars || {}).reduce((a, b) => a + b, 0)} ⭐</div>
+              </div>
+            </button>
+            <button onClick={() => { setSetupMode('solo'); setScreen('setup'); }}
+              className="w-full py-3 rounded-xl text-white font-semibold text-left px-4 flex items-center gap-3"
+              style={{ background: th.panel, border: `1px solid ${th.border}` }}>
+              <span className="text-2xl">🎯</span>
+              <div><div>Skirmish vs AI</div><div className="text-xs text-slate-400 font-normal">Custom map, difficulty, fog</div></div>
+            </button>
+            <button onClick={startDaily} disabled={dailyDone}
+              className="w-full py-3 rounded-xl text-white font-semibold text-left px-4 flex items-center gap-3"
+              style={{ background: dailyDone ? '#475569' : 'linear-gradient(90deg,#8b5cf6,#6366f1)', opacity: dailyDone ? 0.6 : 1 }}>
+              <span className="text-2xl">📅</span>
+              <div><div>Daily Challenge {dailyDone ? '✓' : ''}</div><div className="text-xs opacity-80 font-normal">Same map globally, today only</div></div>
+            </button>
+            <button onClick={() => { setSetupMode('local'); setScreen('setup'); }}
+              className="w-full py-3 rounded-xl text-white font-semibold text-left px-4 flex items-center gap-3"
+              style={{ background: th.panel, border: `1px solid ${th.border}` }}>
+              <span className="text-2xl">🎮</span>
+              <div><div>Hot-seat</div><div className="text-xs text-slate-400 font-normal">Pass device between friends</div></div>
+            </button>
+          </div>
+
+          <div className="grid grid-cols-4 gap-2 mb-3">
+            {user.tutorialDone && <button onClick={startTutorial} className="py-2 rounded-lg text-sm font-medium" style={{ background: th.panel, border: `1px solid ${th.border}` }}>🎓</button>}
+            <button onClick={() => setScreen('achievements')} className="py-2 rounded-lg text-sm font-medium" style={{ background: th.panel, border: `1px solid ${th.border}` }}>🏆</button>
+            <button onClick={() => setScreen('rules')} className="py-2 rounded-lg text-sm font-medium" style={{ background: th.panel, border: `1px solid ${th.border}` }}>📜</button>
+            <button onClick={() => setScreen('settings')} className="py-2 rounded-lg text-sm font-medium" style={{ background: th.panel, border: `1px solid ${th.border}` }}>⚙️</button>
+          </div>
+
+          <div className="rounded-xl p-3 text-xs text-slate-400" style={{ background: th.panel, border: `1px solid ${th.border}` }}>
+            Plays: {user.stats.plays} · Wins: {user.stats.wins} · Current streak: {user.stats.streak}
+          </div>
+        </div>
+        {toast && <Toast toast={toast} />}
+      </div>
+    );
+  }
+
+  if (screen === 'campaign') {
+    return (
+      <div style={{ minHeight: '100vh', background: th.bg, color: '#fff', padding: 16, paddingBottom: 32 }}>
+        <div className="max-w-md mx-auto">
+          <button onClick={() => setScreen('menu')} className="text-amber-400 mb-4">← Back</button>
+          <h2 className="text-xl font-bold mb-1">🗺️ Campaign</h2>
+          <div className="text-sm text-slate-400 mb-4">{Object.keys(user.campaignStars || {}).length} / 10 · {Object.values(user.campaignStars || {}).reduce((a, b) => a + b, 0)} / 30 ⭐</div>
+          <div className="space-y-2">
+            {CAMPAIGN.map((lv, idx) => {
+              const prevStars = idx === 0 || (user.campaignStars[CAMPAIGN[idx - 1].id] || 0) > 0;
+              const locked = !prevStars;
+              const stars = user.campaignStars[lv.id] || 0;
+              return (
+                <button key={lv.id} onClick={() => !locked && startCampaign(lv)} disabled={locked}
+                  className="w-full p-3 rounded-xl flex items-center gap-3 text-left"
+                  style={{ background: locked ? '#1e293b' : th.panel, border: `2px solid ${stars > 0 ? '#f59e0b' : th.border}`, opacity: locked ? 0.5 : 1 }}>
+                  <div className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-lg" style={{ background: locked ? '#475569' : (stars > 0 ? '#f59e0b' : th.border) }}>
+                    {locked ? '🔒' : lv.id}
+                  </div>
+                  <div className="flex-1">
+                    <div className="font-semibold flex items-center gap-2">{lv.name}<span className="text-xs opacity-60">{MAP_SHAPES[lv.shape]?.icon}</span></div>
+                    <div className="text-xs text-slate-400">{lv.desc}</div>
+                    <div className="text-xs mt-1 flex items-center gap-1 text-slate-500">
+                      <span>{lv.ai.map(d => AI_NAMES[d]).join(', ')}</span>{lv.fog && <span>· 🌫️</span>}<span>· ≤{lv.targetTurns}t</span>
+                    </div>
+                  </div>
+                  <div className="flex">{[1, 2, 3].map(s => (<span key={s} style={{ fontSize: 14, opacity: stars >= s ? 1 : 0.25 }}>⭐</span>))}</div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (screen === 'shop') {
+    return (
+      <div style={{ minHeight: '100vh', background: th.bg, color: '#fff', padding: 16, paddingBottom: 32 }}>
+        <div className="max-w-md mx-auto">
+          <div className="flex items-center justify-between mb-4">
+            <button onClick={() => setScreen('menu')} className="text-amber-400">← Back</button>
+            <div className="flex items-center gap-1"><span>💰</span><b>{user.coins}</b></div>
+          </div>
+          <h2 className="text-xl font-bold mb-2">🛒 Themes</h2>
+          <div className="text-sm text-slate-400 mb-4">Unlock cosmetic themes with coins earned from matches.</div>
+          <div className="space-y-3 mb-6">
+            {Object.entries(THEMES).map(([id, t]) => {
+              const owned = user.ownedThemes.includes(id);
+              const active = user.theme === id;
+              const canAfford = user.coins >= t.price;
+              return (
+                <div key={id} className="rounded-xl p-3 flex items-center gap-3" style={{ background: t.panel, border: `2px solid ${active ? '#fbbf24' : t.border}` }}>
+                  <div className="flex gap-1">{t.players.map((p, i) => (<div key={i} className="w-5 h-5 rounded" style={{ background: p.color }} />))}</div>
+                  <div className="flex-1">
+                    <div className="font-semibold">{t.name}</div>
+                    <div className="text-xs opacity-75">{owned ? (active ? 'Active' : 'Owned') : `${t.price} coins`}</div>
+                  </div>
+                  {owned ? (
+                    !active && <button onClick={async () => { const u = {...user, theme: id}; await saveUser(u); setUser(u); }} className="px-3 py-1.5 rounded-lg bg-amber-500 text-sm font-semibold">Use</button>
+                  ) : (
+                    <button onClick={async () => {
+                      if (!canAfford) { setToast({ type: 'info', msg: 'Not enough coins.' }); return; }
+                      const u = {...user, coins: user.coins - t.price, ownedThemes: [...user.ownedThemes, id], theme: id};
+                      await saveUser(u); setUser(u);
+                      setToast({ type: 'info', msg: `Unlocked ${t.name}!` });
+                    }} className="px-3 py-1.5 rounded-lg text-sm font-semibold" style={{ background: canAfford ? '#10b981' : '#475569' }}>{canAfford ? 'Buy' : '💰'}</button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        {toast && <Toast toast={toast} />}
+      </div>
+    );
+  }
+
+  if (screen === 'achievements') {
+    return (
+      <div style={{ minHeight: '100vh', background: th.bg, color: '#fff', padding: 16, paddingBottom: 32 }}>
+        <div className="max-w-md mx-auto">
+          <button onClick={() => setScreen('menu')} className="text-amber-400 mb-4">← Back</button>
+          <h2 className="text-xl font-bold mb-4">🏆 Achievements</h2>
+          <div className="rounded-xl p-3 mb-4 grid grid-cols-3 gap-3 text-center" style={{ background: th.panel, border: `1px solid ${th.border}` }}>
+            <div><div className="text-2xl font-bold">{user.stats.wins}</div><div className="text-xs text-slate-400">Wins</div></div>
+            <div><div className="text-2xl font-bold">{user.stats.plays}</div><div className="text-xs text-slate-400">Games</div></div>
+            <div><div className="text-2xl font-bold">{user.stats.maxStreak}</div><div className="text-xs text-slate-400">Best streak</div></div>
+          </div>
+          <div className="space-y-2">
+            {ACHIEVEMENTS.map(a => {
+              const done = user.achievements.includes(a.id);
+              return (
+                <div key={a.id} className="rounded-lg p-3 flex items-center gap-3" style={{ background: th.panel, border: `1px solid ${th.border}`, opacity: done ? 1 : 0.6 }}>
+                  <div className="text-2xl">{done ? a.icon : '🔒'}</div>
+                  <div className="flex-1"><div className="font-semibold text-sm">{a.name}</div><div className="text-xs text-slate-400">{a.desc}</div></div>
+                  <div className="text-xs text-amber-400">+{a.reward}💰</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (screen === 'settings') {
+    return (
+      <div style={{ minHeight: '100vh', background: th.bg, color: '#fff', padding: 16, paddingBottom: 32 }}>
+        <div className="max-w-md mx-auto">
+          <button onClick={() => setScreen('menu')} className="text-amber-400 mb-4">← Back</button>
+          <h2 className="text-xl font-bold mb-4">⚙️ Settings</h2>
+          <div className="rounded-xl p-3 mb-3" style={{ background: th.panel, border: `1px solid ${th.border}` }}>
+            <div className="text-sm mb-2">Nickname</div>
+            <div className="flex gap-2">
+              <input value={nicknameInput} onChange={e => setNicknameInput(e.target.value)} placeholder="Your nickname" maxLength={16} className="flex-1 px-3 py-2 rounded text-white" style={{ background: '#0f172a', border: `1px solid ${th.border}` }} />
+              <button onClick={setNickname} className="px-4 py-2 rounded bg-amber-500 text-sm font-semibold">Save</button>
+            </div>
+          </div>
+          <button onClick={startTutorial} className="w-full py-3 mb-3 rounded-xl font-semibold" style={{ background: 'linear-gradient(90deg,#10b981,#059669)' }}>🎓 Replay Tutorial</button>
+          <button onClick={toggleMute} className="w-full py-3 mb-3 rounded-xl font-semibold" style={{ background: th.panel, border: `1px solid ${th.border}` }}>
+            {muted ? '🔇 Sound off' : '🔊 Sound on'}
+          </button>
+          <div className="rounded-xl p-3 text-xs text-slate-400" style={{ background: th.panel, border: `1px solid ${th.border}` }}>
+            Your data is stored locally in your browser. Clearing site data will reset progress.
+          </div>
+        </div>
+        {toast && <Toast toast={toast} />}
+      </div>
+    );
+  }
+
+  if (screen === 'rules') {
+    return (
+      <div style={{ minHeight: '100vh', background: th.bg, color: '#fff', padding: 16, paddingBottom: 32 }}>
+        <div className="max-w-lg mx-auto">
+          <button onClick={() => setScreen('menu')} className="text-amber-400 mb-4">← Back</button>
+          <h2 className="text-xl font-bold mb-3">How to Play</h2>
+          <div className="space-y-3 text-sm text-slate-200">
+            <p><b>Goal:</b> Eliminate all opponents.</p>
+            <p><b>Provinces:</b> Connected same-color tiles share a treasury 💰. Each turn, 1 gold per tile minus wages. Farms 🌾 give +5.</p>
+            <p><b>Units:</b> 👤 Scout (8/1) → 🛡️ Guard (18/4) → 🐴 Rider (32/12) → 👑 Champion (48/36). Higher level beats lower.</p>
+            <p><b>Capture:</b> Unit level must exceed any defender on or adjacent to the target.</p>
+            <p><b>Terrain:</b> 🏔️ Mountains are impassable — plan around them or use chokepoints.</p>
+            <p><b>Buildings:</b> 🗼(18) lvl2 def · 🏯(38) lvl3 · 🌾(14+) adj to farm/capital · 🏰 holds gold.</p>
+            <p><b>Map shapes:</b> ⬢ Classic · ▭ Plains · ⛰️ Great Divide · 🏝️ Twin Isles — each plays differently.</p>
+            <p><b>Merging:</b> Drop your unit on your own unit (max lv4).</p>
+            <p><b>Undo:</b> 2 per turn in solo/local.</p>
+            <p className="pt-3 text-xs text-slate-500 italic border-t" style={{ borderColor: '#334155' }}>Hexfall is an original game inspired by the hex-strategy classics Slay (Sean O'Connor, 1995) and Antiyoy (Yiotro). Mechanics are similar in spirit; all code, art, numbers, and unit names are original to Hexfall.</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (screen === 'setup') {
+    return (
+      <div style={{ minHeight: '100vh', background: th.bg, color: '#fff', padding: 16, paddingBottom: 32 }}>
+        <div className="max-w-md mx-auto">
+          <button onClick={backToMenu} className="text-amber-400 mb-4">← Back</button>
+          <h2 className="text-xl font-bold mb-4">{setupMode === 'solo' ? 'Skirmish vs AI' : 'Hot-Seat'}</h2>
+
+          <div className="mb-4">
+            <div className="text-sm text-slate-400 mb-2">Map shape</div>
+            <div className="grid grid-cols-2 gap-2">
+              {Object.entries(MAP_SHAPES).map(([id, sh]) => (
+                <button key={id} onClick={() => setSetupShape(id)} className="p-2 rounded-lg text-left"
+                  style={{ background: setupShape === id ? '#334155' : th.panel, border: `2px solid ${setupShape === id ? '#f59e0b' : th.border}` }}>
+                  <div className="flex items-center gap-2 font-semibold text-sm"><span>{sh.icon}</span>{sh.name}</div>
+                  <div className="text-xs text-slate-400 mt-0.5">{sh.desc}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {setupMode === 'solo' && (<>
+            <div className="mb-4">
+              <div className="text-sm text-slate-400 mb-2">Opponents</div>
+              <div className="flex gap-2">
+                {[1, 2, 3].map(n => (<button key={n} onClick={() => setSetupOpponents(n)} className="flex-1 py-3 rounded-lg font-semibold" style={{ background: setupOpponents === n ? '#f59e0b' : th.panel, border: `1px solid ${th.border}` }}>{n}</button>))}
+              </div>
+            </div>
+            <div className="mb-4">
+              <div className="text-sm text-slate-400 mb-2">Difficulty</div>
+              <div className="space-y-2">
+                {[
+                  { id: 'easy', name: 'Novice', desc: 'Expands freely, weak defense', icon: '🌱' },
+                  { id: 'medium', name: 'Captain', desc: 'Defends and counter-attacks', icon: '🛡️' },
+                  { id: 'hard', name: 'Warlord', desc: 'Economy, farms, chokepoints', icon: '⚔️' },
+                ].map(d => (
+                  <button key={d.id} onClick={() => setSetupDifficulty(d.id)} className="w-full p-3 rounded-lg text-left flex items-center gap-3"
+                    style={{ background: setupDifficulty === d.id ? '#334155' : th.panel, border: `2px solid ${setupDifficulty === d.id ? '#f59e0b' : th.border}` }}>
+                    <div className="text-2xl">{d.icon}</div>
+                    <div className="flex-1"><div className="font-semibold">{d.name}</div><div className="text-xs text-slate-400">{d.desc}</div></div>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="mb-4"><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={setupFog} onChange={e => setSetupFog(e.target.checked)} />Fog of war</label></div>
+            <button onClick={startSolo} className="w-full py-3 rounded-xl font-semibold shadow-lg" style={{ background: 'linear-gradient(90deg,#f59e0b,#ea580c)' }}>Start Battle</button>
+          </>)}
+          {setupMode === 'local' && (<>
+            <div className="mb-4">
+              <div className="text-sm text-slate-400 mb-2">Number of players</div>
+              <div className="flex gap-2">{[2, 3, 4].map(n => (<button key={n} onClick={() => setSetupLocalCount(n)} className="flex-1 py-3 rounded-lg font-semibold" style={{ background: setupLocalCount === n ? '#f59e0b' : th.panel, border: `1px solid ${th.border}` }}>{n}</button>))}</div>
+            </div>
+            <button onClick={startLocal} className="w-full py-3 rounded-xl font-semibold shadow-lg" style={{ background: 'linear-gradient(90deg,#f59e0b,#ea580c)' }}>Start Game</button>
+          </>)}
+        </div>
+        {toast && <Toast toast={toast} />}
+      </div>
+    );
+  }
+
+  // GAME
+  const cur = state?.currentPlayer;
+  const curPlayer = cur != null ? th.players[cur] : null;
+  const selT = sel && state ? state.tiles[sel] : null;
+  const selProv = selT && selT.pid && state ? state.provinces[selT.pid] : null;
+  const fcost = selProv ? farmCost(state, selProv.id) : FARM_BASE;
+  const curLevel = state?.campaignLevel ? CAMPAIGN.find(l => l.id === state.campaignLevel) : null;
+  const tutorialActive = state?.tutorial?.active;
+  const tutorialStep = state?.tutorial?.step;
+  const tutorialStepDef = tutorialActive && tutorialStep < TUTORIAL_STEPS.length ? TUTORIAL_STEPS[tutorialStep] : null;
+
+  return (
+    <div style={{ minHeight: '100vh', background: th.bg, color: '#fff', display: 'flex', flexDirection: 'column' }}>
+      <div className="flex items-center justify-between p-2" style={{ background: th.panel, borderBottom: `1px solid ${th.border}` }}>
+        <button onClick={backToMenu} className="text-slate-400 text-sm">← Menu</button>
+        <div className="flex items-center gap-2">
+          <div className="text-xs text-slate-400">T{state?.turn}</div>
+          {curPlayer && !replayMode && (
+            <div className="px-2 py-0.5 rounded-full text-xs font-semibold flex items-center gap-1" style={{ background: curPlayer.color }}>
+              {state.aiPlayers?.[cur] ? `🤖 ${AI_NAMES[state.aiPlayers[cur]]}` : `P${cur+1}`}
+            </div>
+          )}
+          {replayMode && <div className="px-2 py-0.5 rounded-full text-xs font-semibold bg-purple-500">📽️ T{turnHistory[replayTurn]?.turn || 0}</div>}
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={toggleMute} className="text-slate-400 text-xs px-1">{muted ? '🔇' : '🔊'}</button>
+          {!replayMode && isMyTurn && historyStack.length > 0 && state.undoLeft > 0 && (
+            <button onClick={handleUndo} className="px-2 py-1 rounded text-xs font-semibold bg-slate-700">↩️ {state.undoLeft}</button>
+          )}
+          {!replayMode && (
+            <button onClick={handleEndTurn} disabled={!isMyTurn || state?.gameOver}
+              className="px-3 py-1.5 rounded-lg text-sm font-semibold relative"
+              style={{ background: isMyTurn && !state?.gameOver ? '#f59e0b' : '#475569', color: '#fff', boxShadow: tutorialButtonHint === 'endButton' ? '0 0 0 2px #fbbf24' : 'none' }}>
+              End ▶
+              {tutorialButtonHint === 'endButton' && <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-yellow-400 animate-ping"></span>}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {curLevel && !replayMode && (<div className="text-center text-xs py-1" style={{ background: th.panel, color: '#94a3b8' }}>🗺️ L{curLevel.id}: {curLevel.name} {MAP_SHAPES[curLevel.shape]?.icon} · ≤{curLevel.targetTurns}t</div>)}
+      {state?.blitz && !replayMode && (<div className="text-center text-xs py-1" style={{ background: 'linear-gradient(90deg,#ef4444,#dc2626)', color: '#fff' }}>⚡ Blitz mode · win fast for bonus 💰</div>)}
+      {state?.objectives && state.objectives.length > 0 && !replayMode && !state.tutorial && (
+        <div className="px-2 py-1.5 flex gap-1.5 overflow-x-auto" style={{ background: th.panel, borderBottom: `1px solid ${th.border}` }}>
+          {state.objectives.map(obj => (
+            <div key={obj.id} className="flex-1 min-w-0 rounded-lg px-2 py-1 text-xs flex items-center gap-1.5" style={{ background: obj.done ? 'linear-gradient(90deg,#10b981,#059669)' : '#0f172a', border: `1px solid ${obj.done ? '#10b981' : th.border}`, opacity: obj.done ? 1 : 0.95 }}>
+              <span className="text-xs">{obj.done ? '✓' : '○'}</span>
+              <span className="flex-1 truncate">{obj.name}</span>
+              <span className="text-amber-400 font-bold whitespace-nowrap">{obj.progress}/{obj.target}</span>
+              <span className="text-xs opacity-70">+{obj.reward}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div ref={containerRef} className="flex-1 flex items-center justify-center overflow-hidden relative">
+        <canvas ref={canvasRef} onClick={handleCanvasClick} style={{ borderRadius: 8, cursor: !replayMode && isMyTurn ? 'pointer' : 'default', touchAction: 'manipulation' }} />
+
+        {!replayMode && !state?.gameOver && isMyTurn && state?.threats && Object.keys(state.threats).length > 0 && !state?.tutorial && (
+          <div className="absolute top-2 left-1/2 z-20 px-2 py-1 rounded-lg text-xs font-semibold flex items-center gap-1 shadow-lg" style={{ transform: 'translateX(-50%)', background: 'rgba(239, 68, 68, 0.95)', color: '#fff', border: '1px solid #b91c1c' }}>
+            ⚠️ {Object.keys(state.threats).length} tile{Object.keys(state.threats).length > 1 ? 's' : ''} at risk
+          </div>
+        )}
+
+        {tutorialStepDef && !state?.gameOver && (
+          <div className="absolute top-4 left-1/2 z-30 px-3" style={{ transform: 'translateX(-50%)', maxWidth: 'min(440px, 90vw)' }}>
+            <div className="rounded-2xl p-4 shadow-2xl relative" style={{ background: 'linear-gradient(135deg, rgba(251,191,36,0.97), rgba(245,158,11,0.97))', color: '#1f2937', border: '2px solid #f59e0b' }}>
+              <div className="absolute -top-2 left-4 px-2 py-0.5 rounded-full text-xs font-bold" style={{ background: '#1f2937', color: '#fbbf24' }}>Tutorial {tutorialStep + 1}/{TUTORIAL_STEPS.length}</div>
+              <div className="text-sm font-semibold leading-relaxed whitespace-pre-line">{tutorialStepDef.hint}</div>
+              <div className="flex items-center justify-between mt-3 gap-2">
+                <button onClick={skipTutorial} className="text-xs underline opacity-70">Skip</button>
+                <div className="flex gap-1 flex-1 justify-center">
+                  {TUTORIAL_STEPS.map((_, i) => (<div key={i} className="w-1.5 h-1.5 rounded-full" style={{ background: i <= tutorialStep ? '#1f2937' : 'rgba(31,41,55,0.3)' }} />))}
+                </div>
+                {tutorialStepDef.requireNext && (
+                  <button onClick={() => { SFX.tap(); const s = clone(state); s.tutorial.step = Math.min(TUTORIAL_STEPS.length - 1, s.tutorial.step + 1); setState(s); }} className="px-3 py-1.5 rounded-lg text-xs font-bold" style={{ background: '#1f2937', color: '#fbbf24' }}>Next →</button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {replayMode && (
+        <div className="p-3" style={{ background: th.panel, borderTop: `1px solid ${th.border}` }}>
+          <div className="flex items-center gap-2 mb-2">
+            <button onClick={() => { setReplayTurn(0); setReplayPlaying(false); }} className="px-3 py-2 rounded bg-slate-700 text-sm">⏮</button>
+            <button onClick={() => setReplayPlaying(p => !p)} className="px-3 py-2 rounded bg-amber-500 text-sm font-semibold">{replayPlaying ? '⏸' : '▶'}</button>
+            <button onClick={() => setReplayTurn(turnHistory.length - 1)} className="px-3 py-2 rounded bg-slate-700 text-sm">⏭</button>
+            <div className="flex-1 text-xs text-slate-400 text-center">Turn {replayTurn + 1} / {turnHistory.length}</div>
+            <button onClick={() => { setReplayMode(false); setReplayPlaying(false); }} className="px-3 py-2 rounded bg-slate-700 text-sm">✕</button>
+          </div>
+          <input type="range" min={0} max={Math.max(0, turnHistory.length - 1)} value={replayTurn} onChange={e => { setReplayTurn(+e.target.value); setReplayPlaying(false); }} className="w-full"/>
+        </div>
+      )}
+
+      {!replayMode && (
+        <div className="p-2" style={{ background: th.panel, borderTop: `1px solid ${th.border}` }}>
+          {state?.gameOver ? (
+            <div className="text-center py-3 px-2">
+              <div className="text-lg font-bold mb-1">{state.winner === 0 ? '🏆 Victory!' : state.winner != null ? `P${state.winner+1} wins` : 'Draw'}</div>
+              <div className="text-xs text-slate-400 mb-3">Turn {state.turn}</div>
+              <div className="flex gap-2 justify-center flex-wrap">
+                {turnHistory.length > 1 && !state.tutorial && (<button onClick={() => { setReplayMode(true); setReplayTurn(0); setReplayPlaying(true); }} className="px-3 py-2 rounded-lg text-sm font-semibold bg-purple-600">📽️ Replay</button>)}
+                <button onClick={backToMenu} className="px-4 py-2 rounded-lg bg-amber-500 font-semibold text-sm">Menu</button>
+                {curLevel && (() => {
+                  const next = CAMPAIGN.find(l => l.id === curLevel.id + 1);
+                  if (state.winner === 0 && next) return (<button onClick={() => startCampaign(next)} className="px-4 py-2 rounded-lg bg-emerald-500 font-semibold text-sm">Next →</button>);
+                  if (state.winner !== 0) return (<button onClick={() => startCampaign(curLevel)} className="px-4 py-2 rounded-lg bg-slate-700 font-semibold text-sm">Retry</button>);
+                })()}
+                {state.mode === 'solo' && !curLevel && (<button onClick={startSolo} className="px-4 py-2 rounded-lg bg-slate-700 font-semibold text-sm">Rematch</button>)}
+              </div>
+            </div>
+          ) : selT ? (
+            <div>
+              <div className="text-xs text-slate-400 mb-2 px-1 flex items-center gap-2 flex-wrap">
+                <span>{selT.owner === -1 ? 'Neutral' : `P${selT.owner+1}`}</span>
+                {selProv && <span>· 💰{selProv.gold} · {selProv.size} tiles</span>}
+                {selT.unit && <span>· {U_NAME[selT.unit.level]}{selT.unit.moved ? '(done)' : ''}</span>}
+                {selT.struct === 'tower' && <span>· Tower</span>}
+                {selT.struct === 'stower' && <span>· Strong Tower</span>}
+                {selT.struct === 'farm' && <span>· Farm +4</span>}
+                {selT.struct === 'capital' && <span>· Capital</span>}
+              </div>
+              {isMyTurn && selT.owner === cur && selProv && (
+                <div className="grid grid-cols-4 gap-1 text-xs">
+                  {[1, 2, 3, 4].map(lv => (
+                    <button key={lv} onClick={() => handleBuy(lv)} disabled={selProv.gold < U_COST[lv]}
+                      className="py-2 rounded font-medium flex flex-col items-center relative"
+                      style={{ background: selProv.gold >= U_COST[lv] ? '#334155' : '#1e293b', opacity: selProv.gold >= U_COST[lv] ? 1 : 0.5, boxShadow: tutorialButtonHint === 'peasantBtn' && lv === 1 ? '0 0 0 2px #fbbf24' : 'none' }}>
+                      <span className="text-base">{U_ICON[lv]}</span><span>💰{U_COST[lv]}</span>
+                      {tutorialButtonHint === 'peasantBtn' && lv === 1 && (<span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-yellow-400 animate-ping"></span>)}
+                    </button>
+                  ))}
+                  <button onClick={() => { SFX.tap(); setBuildMode(buildMode === 'tower' ? null : 'tower'); }} disabled={selProv.gold < TOWER_COST}
+                    className="py-2 rounded font-medium flex flex-col items-center relative"
+                    style={{ background: buildMode === 'tower' ? '#f59e0b' : (selProv.gold >= TOWER_COST ? '#334155' : '#1e293b'), opacity: selProv.gold >= TOWER_COST ? 1 : 0.5, boxShadow: tutorialButtonHint === 'towerBtn' ? '0 0 0 2px #fbbf24' : 'none' }}>
+                    <span className="text-base">🗼</span><span>💰{TOWER_COST}</span>
+                    {tutorialButtonHint === 'towerBtn' && (<span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-yellow-400 animate-ping"></span>)}
+                  </button>
+                  <button onClick={() => { SFX.tap(); setBuildMode(buildMode === 'stower' ? null : 'stower'); }} disabled={selProv.gold < STOWER_COST}
+                    className="py-2 rounded font-medium flex flex-col items-center"
+                    style={{ background: buildMode === 'stower' ? '#f59e0b' : (selProv.gold >= STOWER_COST ? '#334155' : '#1e293b'), opacity: selProv.gold >= STOWER_COST ? 1 : 0.5 }}>
+                    <span className="text-base">🏯</span><span>💰{STOWER_COST}</span>
+                  </button>
+                  <button onClick={() => { SFX.tap(); setBuildMode(buildMode === 'farm' ? null : 'farm'); }} disabled={selProv.gold < fcost}
+                    className="py-2 rounded font-medium flex flex-col items-center col-span-2 relative"
+                    style={{ background: buildMode === 'farm' ? '#f59e0b' : (selProv.gold >= fcost ? '#334155' : '#1e293b'), opacity: selProv.gold >= fcost ? 1 : 0.5, boxShadow: tutorialButtonHint === 'farmBtn' ? '0 0 0 2px #fbbf24' : 'none' }}>
+                    <span className="text-base">🌾 Farm +4</span><span>💰{fcost}</span>
+                    {tutorialButtonHint === 'farmBtn' && (<span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-yellow-400 animate-ping"></span>)}
+                  </button>
+                </div>
+              )}
+              {buildMode && (<div className="text-xs text-amber-400 mt-2 text-center">Tap {buildMode === 'farm' ? 'a tile adjacent to your farm/capital' : 'a tile'} — or tap again to cancel.</div>)}
+            </div>
+          ) : (
+            <div className="text-xs text-slate-400 text-center py-1">
+              {isMyTurn ? 'Tap a tile. Tap your unit then a highlighted tile to move.' : `Waiting for ${state?.aiPlayers?.[cur] ? AI_NAMES[state.aiPlayers[cur]] : `P${cur+1}`}…`}
+            </div>
+          )}
+        </div>
+      )}
+
+      {toast && <Toast toast={toast} />}
+    </div>
+  );
+}
+
+function Toast({ toast }) {
+  return (
+    <div className="fixed top-4 left-1/2 px-4 py-2 rounded-lg text-sm font-semibold shadow-xl z-50"
+      style={{ transform: 'translateX(-50%)',
+        background: toast.type === 'win' ? 'linear-gradient(90deg,#f59e0b,#ea580c)'
+          : toast.type === 'ach' ? 'linear-gradient(90deg,#8b5cf6,#6366f1)'
+          : toast.type === 'daily' ? 'linear-gradient(90deg,#10b981,#059669)'
+          : toast.type === 'ad' ? '#10b981'
+          : toast.type === 'loss' ? '#374151' : '#1e293b',
+        color: '#fff', border: '1px solid rgba(255,255,255,0.2)' }}>
+      {toast.msg}
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<Hexfall />);
+</script>
+</body>
+</html>
