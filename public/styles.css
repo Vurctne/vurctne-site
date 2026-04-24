@@ -163,6 +163,22 @@ h3 {
   margin: 0 0 4px;
   letter-spacing: -0.005em;
 }
+.game-body h3 {
+  font-family: "Sora", var(--sans);
+  font-weight: 800;
+  font-size: 34px;
+  letter-spacing: -0.02em;
+}
+.game-body em.phase-light {
+  font-style: normal;
+  color: #C77A1F;
+  font-weight: 600;
+}
+.game-body em.phase-dark {
+  font-style: normal;
+  color: #2D7CFF;
+  font-weight: 600;
+}
 
 .two-col {
   display: grid;
@@ -194,7 +210,15 @@ h3 {
   aspect-ratio: 3 / 4;
   border-radius: 14px;
   overflow: hidden;
-  background: radial-gradient(120% 120% at 30% 20%, #0F1830 0%, #070C1A 70%);
+  background: radial-gradient(120% 120% at 50% 50%, #0F1A30 0%, #070B16 55%, #030610 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.logo-corona {
+  width: 92%;
+  height: auto;
+  display: block;
 }
 .orb {
   position: absolute;

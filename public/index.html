@@ -6,7 +6,10 @@
 <title>Vurctne Games — Independent mini-game studio</title>
 <meta name="description" content="Vurctne Games is an independent mini-game studio based in Melbourne, Australia. We build arcade games for the WeChat, Douyin, and TikTok mini-game platforms." />
 <link rel="stylesheet" href="styles.css" />
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='12' fill='%232D7CFF'/%3E%3Ccircle cx='16' cy='16' r='6' fill='%23FFB347'/%3E%3C/svg%3E" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23070B16'/%3E%3Ccircle cx='16' cy='16' r='10' fill='%23FFB347' opacity='0.35'/%3E%3Ccircle cx='16' cy='16' r='8' fill='%23FFB347' opacity='0.65'/%3E%3Ccircle cx='16' cy='16' r='6.2' fill='%23FFFFFF' opacity='0.95'/%3E%3Ccircle cx='16' cy='16' r='6' fill='%23000'/%3E%3Ccircle cx='16' cy='16' r='6' fill='none' stroke='%23FFE092' stroke-width='0.4'/%3E%3C/svg%3E" />
 </head>
 <body>
 
@@ -44,14 +47,65 @@
 
       <article class="game-card">
         <div class="game-art" aria-hidden="true">
-          <div class="orb orb-cool"></div>
-          <div class="orb orb-warm"></div>
-          <div class="game-track"></div>
+          <svg viewBox="0 0 200 200" class="logo-corona" preserveAspectRatio="xMidYMid meet">
+            <defs>
+              <radialGradient id="cc-hot" cx="50%" cy="50%" r="50%">
+                <stop offset="55%" stop-color="#FFB347" stop-opacity="0"/>
+                <stop offset="64%" stop-color="#FFE092" stop-opacity="1"/>
+                <stop offset="70%" stop-color="#ffffff" stop-opacity="0.95"/>
+                <stop offset="78%" stop-color="#FFB347" stop-opacity="0.4"/>
+                <stop offset="100%" stop-color="#FFB347" stop-opacity="0"/>
+              </radialGradient>
+              <radialGradient id="cc-cool" cx="50%" cy="50%" r="50%">
+                <stop offset="72%" stop-color="#2D7CFF" stop-opacity="0"/>
+                <stop offset="82%" stop-color="#67D5FF" stop-opacity="0.85"/>
+                <stop offset="88%" stop-color="#9AE6FF" stop-opacity="0.55"/>
+                <stop offset="100%" stop-color="#2D7CFF" stop-opacity="0"/>
+              </radialGradient>
+              <radialGradient id="cc-dusk" cx="50%" cy="50%" r="65%">
+                <stop offset="55%" stop-color="#2D7CFF" stop-opacity="0"/>
+                <stop offset="100%" stop-color="#2D7CFF" stop-opacity="0.45"/>
+              </radialGradient>
+              <linearGradient id="cc-streak" x1="0" x2="1">
+                <stop offset="0%" stop-color="#FFB347" stop-opacity="0"/>
+                <stop offset="50%" stop-color="#FFE092" stop-opacity="0.9"/>
+                <stop offset="85%" stop-color="#67D5FF" stop-opacity="0.5"/>
+                <stop offset="100%" stop-color="#2D7CFF" stop-opacity="0"/>
+              </linearGradient>
+              <filter id="cc-soft" x="-50%" y="-50%" width="200%" height="200%">
+                <feGaussianBlur stdDeviation="2"/>
+              </filter>
+            </defs>
+            <circle cx="100" cy="100" r="96" fill="url(#cc-dusk)"/>
+            <rect x="-24" y="97.6" width="104" height="4.8" rx="2.4" fill="url(#cc-streak)" filter="url(#cc-soft)"/>
+            <circle cx="100" cy="100" r="93" fill="url(#cc-cool)"/>
+            <circle cx="100" cy="100" r="96" fill="none" stroke="#67D5FF" stroke-opacity="0.45" stroke-width="0.6"/>
+            <circle cx="100" cy="100" r="73.2" fill="url(#cc-hot)"/>
+            <circle cx="100" cy="100" r="87.6" fill="none" stroke="#FFB347" stroke-opacity="0.55" stroke-width="0.8"/>
+            <circle cx="100" cy="100" r="61.6" fill="#ffffff" opacity="0.95"/>
+            <circle cx="100" cy="100" r="60" fill="#000"/>
+            <circle cx="100" cy="100" r="57" fill="none" stroke="#000" stroke-opacity="0.6" stroke-width="2.4"/>
+            <circle cx="100" cy="100" r="60.6" fill="none" stroke="#FFE092" stroke-opacity="0.9" stroke-width="0.8"/>
+            <g>
+              <circle cx="152.8" cy="79" r="15" fill="#FFB347" opacity="0.35"/>
+              <circle cx="152.8" cy="79" r="9.6" fill="#FFE092" opacity="0.8"/>
+              <line x1="132.8" y1="79" x2="172.8" y2="79" stroke="#FFE092" stroke-opacity="0.85" stroke-width="1" stroke-linecap="round"/>
+              <line x1="152.8" y1="67" x2="152.8" y2="91" stroke="#FFE092" stroke-opacity="0.7" stroke-width="0.8" stroke-linecap="round"/>
+              <line x1="144.8" y1="71" x2="160.8" y2="87" stroke="#ffffff" stroke-opacity="0.45" stroke-width="0.5" stroke-linecap="round"/>
+              <line x1="144.8" y1="87" x2="160.8" y2="71" stroke="#ffffff" stroke-opacity="0.45" stroke-width="0.5" stroke-linecap="round"/>
+              <circle cx="152.8" cy="79" r="4.4" fill="#ffffff"/>
+              <circle cx="152.8" cy="79" r="2" fill="#ffffff"/>
+            </g>
+            <circle cx="28" cy="40" r="1.2" fill="#9AE6FF" opacity="0.7"/>
+            <circle cx="168" cy="148" r="1" fill="#ffffff" opacity="0.55"/>
+            <circle cx="92" cy="180" r="0.8" fill="#67D5FF" opacity="0.55"/>
+            <circle cx="176" cy="60" r="0.6" fill="#ffffff" opacity="0.5"/>
+          </svg>
         </div>
         <div class="game-body">
           <p class="tag">Arcade · One-hand</p>
           <h3>PhaseDash</h3>
-          <p>A phase-switching reflex game. Tap to flip between <em>light</em> and <em>dark</em> phases, slip past obstacles that only exist in one phase at a time, chase a streak. Daily challenges, global leaderboards, three-second learning curve.</p>
+          <p>A phase-switching reflex game. Tap to flip between <em class="phase-light">light</em> and <em class="phase-dark">dark</em> phases, slip past obstacles that only exist in one phase at a time, chase a streak. Daily challenges, global leaderboards, three-second learning curve.</p>
           <ul class="game-meta">
             <li><strong>Platforms</strong> WeChat Mini Games · Douyin Mini Games · TikTok Mini Games</li>
             <li><strong>Status</strong> Live on WeChat and Douyin · Preparing TikTok launch (US / EU)</li>
