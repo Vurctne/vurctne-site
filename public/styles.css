@@ -70,14 +70,13 @@ a:hover { border-bottom-color: var(--accent); }
   letter-spacing: 0.01em;
 }
 .brand-mark {
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  background:
-    radial-gradient(circle at 35% 35%, var(--accent-warm) 0%, var(--accent-warm) 28%, transparent 30%),
-    radial-gradient(circle at 65% 65%, var(--accent) 0%, var(--accent) 38%, transparent 40%),
-    #1A1A1A;
-  box-shadow: 0 0 0 1px rgba(0,0,0,0.06);
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='10.5' fill='%23FFB347' opacity='0.4'/%3E%3Ccircle cx='16' cy='16' r='8.4' fill='%23FFB347' opacity='0.8'/%3E%3Ccircle cx='16' cy='16' r='6.3' fill='%23FFFFFF' opacity='0.95'/%3E%3Ccircle cx='16' cy='16' r='6' fill='%23000'/%3E%3C/svg%3E");
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
 }
 .site-nav {
   display: inline-flex;
