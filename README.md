@@ -23,9 +23,10 @@ vurctne-site/
 │   ├── terms.html
 │   ├── 404.html
 │   └── hexfall/             ← Hexfall game (single HTML, deployed under /hexfall/)
-├── projects/                ← case study sources (not yet served)
-├── REDESIGN_PLAN.md         ← in-flight portfolio architecture decision
-└── wrangler.jsonc           ← Cloudflare Pages config
+├── wrangler.jsonc           ← Cloudflare Pages config
+├── README.md
+├── LICENSE
+└── .gitignore
 ```
 
 ## Deploy
