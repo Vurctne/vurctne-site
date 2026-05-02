@@ -459,8 +459,10 @@ async function handleInvestors(request, env) {
     const url = new URL(request.url);
     const id = parseInt(url.searchParams.get('id') || '', 10);
     if (!Number.isFinite(id)) return json({ error: 'missing id' }, 400);
+    // Orphan related events first (D1 enforces FKs, so direct DELETE would fail).
+    // We keep events for audit trail; just clear the investor link.
+    await env.DB.prepare('UPDATE events SET investor_id = NULL WHERE investor_id = ?').bind(id).run();
     await env.DB.prepare('DELETE FROM investors WHERE id = ?').bind(id).run();
-    // Note: events with this investor_id will now have a dangling FK. We keep them for audit.
     return json({ ok: true });
   }
 
