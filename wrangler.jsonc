@@ -1,8 +1,20 @@
 {
   "name": "vurctne-site",
   "compatibility_date": "2025-01-01",
+  "main": "src/index.js",
   "assets": {
     "directory": "./public",
-    "not_found_handling": "404-page"
-  }
+    "not_found_handling": "404-page",
+    "binding": "ASSETS"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "vurctne-hotpot",
+      "database_id": "2774b690-97ff-4f40-a20d-188604c2644c"
+    }
+  ]
+  // Secrets — set via dashboard or `wrangler secret put`, NOT here:
+  //   ADMIN_PASSWORD          (the admin password; rotate by changing this value)
+  //   ADMIN_SESSION_SECRET    (HMAC secret for signed session cookies; rotating invalidates all sessions)
 }

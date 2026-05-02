@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Hotpot Admin · Vurctne</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    height: 100%;
+    background: radial-gradient(ellipse at 50% 30%, rgba(215, 38, 61, 0.35) 0%, transparent 60%),
+                linear-gradient(180deg, #1a0a0a 0%, #2A1A14 100%);
+    color: #FFF8E7;
+    font-family: "PingFang SC", "Microsoft YaHei", -apple-system, BlinkMacSystemFont, sans-serif;
+  }
+  .shell {
+    min-height: 100%;
+    display: flex; align-items: center; justify-content: center;
+    padding: 24px;
+  }
+  .card {
+    background: rgba(255, 248, 231, 0.04);
+    border: 1px solid rgba(244, 180, 0, 0.25);
+    border-radius: 16px;
+    padding: 40px 32px;
+    max-width: 380px; width: 100%;
+    backdrop-filter: blur(12px);
+    box-shadow: 0 12px 48px rgba(0,0,0,0.5);
+  }
+  h1 {
+    font-size: 18px; font-weight: 700; margin-bottom: 4px;
+    background: linear-gradient(135deg, #D7263D, #F4B400);
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .sub { font-size: 12px; color: rgba(255, 248, 231, 0.5); margin-bottom: 24px; letter-spacing: 0.5px; }
+  label { display: block; font-size: 11px; color: #F4B400; margin-bottom: 8px; letter-spacing: 1px; text-transform: uppercase; }
+  input[type="password"] {
+    width: 100%; padding: 14px 16px; font-size: 15px;
+    background: rgba(0,0,0,0.35); color: #FFF8E7;
+    border: 1px solid rgba(244, 180, 0, 0.3); border-radius: 8px;
+    outline: none; font-family: ui-monospace, monospace;
+    transition: border-color 200ms;
+  }
+  input[type="password"]:focus { border-color: #F4B400; }
+  button {
+    margin-top: 20px; width: 100%;
+    padding: 14px; font-size: 14px; font-weight: 700;
+    background: linear-gradient(135deg, #D7263D, #F4B400);
+    color: #fff; border: none; border-radius: 8px; cursor: pointer;
+    transition: transform 100ms, box-shadow 200ms;
+    letter-spacing: 1px;
+  }
+  button:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(215, 38, 61, 0.35); }
+  button:disabled { opacity: 0.6; cursor: wait; transform: none; box-shadow: none; }
+  .err { color: #FF6B6B; font-size: 12px; margin-top: 12px; min-height: 16px; }
+  .footnote { font-size: 10px; color: rgba(255, 248, 231, 0.3); margin-top: 28px; text-align: center; letter-spacing: 0.5px; }
+</style>
+</head>
+<body>
+<div class="shell">
+  <form class="card" id="login-form" autocomplete="off">
+    <h1>Hotpot Admin</h1>
+    <p class="sub">Vurctne Games · Internal</p>
+    <label for="pw">Admin password</label>
+    <input type="password" id="pw" name="pw" autocomplete="off" autofocus>
+    <button type="submit" id="submit">Sign in</button>
+    <div class="err" id="err"></div>
+    <p class="footnote">Single-password access · 8h session</p>
+  </form>
+</div>
+
+<script>
+const form = document.getElementById('login-form');
+const errEl = document.getElementById('err');
+const btn = document.getElementById('submit');
+
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  errEl.textContent = '';
+  btn.disabled = true;
+  btn.textContent = '...';
+  try {
+    const r = await fetch('/hotpot/admin/login', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: document.getElementById('pw').value })
+    });
+    if (r.ok) {
+      location.href = '/hotpot/admin/dashboard.html';
+      return;
+    }
+    if (r.status === 401) errEl.textContent = '密码错误';
+    else if (r.status === 503) errEl.textContent = '后台未配置 (检查 CF Pages env vars)';
+    else errEl.textContent = `登录失败 (${r.status})`;
+  } catch (e) {
+    errEl.textContent = '网络错误';
+  }
+  btn.disabled = false;
+  btn.textContent = 'Sign in';
+});
+</script>
+</body>
+</html>

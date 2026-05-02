@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Hotpot Admin Dashboard · Vurctne</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --bg: #1a0a0a;
+    --bg-2: #2A1A14;
+    --ink: #FFF8E7;
+    --ink-soft: rgba(255, 248, 231, 0.6);
+    --ink-faint: rgba(255, 248, 231, 0.35);
+    --line: rgba(244, 180, 0, 0.2);
+    --hot: #D7263D;
+    --gold: #F4B400;
+    --warn: #FF6B6B;
+    --ok: #4ECDC4;
+  }
+  html, body {
+    background: linear-gradient(180deg, var(--bg), var(--bg-2));
+    color: var(--ink);
+    font-family: "PingFang SC", "Microsoft YaHei", -apple-system, BlinkMacSystemFont, sans-serif;
+    min-height: 100vh; font-size: 14px; line-height: 1.5;
+  }
+  .container { max-width: 1100px; margin: 0 auto; padding: 24px; }
+  header.top {
+    display: flex; align-items: center; justify-content: space-between;
+    border-bottom: 1px solid var(--line); padding-bottom: 16px; margin-bottom: 24px;
+  }
+  header.top h1 {
+    font-size: 18px; font-weight: 700;
+    background: linear-gradient(135deg, var(--hot), var(--gold));
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  header.top .meta { font-size: 11px; color: var(--ink-faint); display: flex; gap: 16px; align-items: center; }
+  header.top .meta button {
+    background: transparent; color: var(--ink-soft); border: 1px solid var(--line);
+    padding: 6px 12px; font-size: 11px; border-radius: 6px; cursor: pointer; letter-spacing: 0.5px;
+  }
+  header.top .meta button:hover { border-color: var(--gold); color: var(--ink); }
+
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 32px; }
+  .stat {
+    background: rgba(255, 248, 231, 0.03); border: 1px solid var(--line);
+    border-radius: 10px; padding: 16px;
+  }
+  .stat .label { font-size: 10px; color: var(--gold); letter-spacing: 1.2px; text-transform: uppercase; margin-bottom: 6px; }
+  .stat .value { font-size: 26px; font-weight: 700; color: var(--ink); font-feature-settings: "tnum"; }
+  .stat.warn .value { color: var(--warn); }
+
+  section { margin-bottom: 36px; }
+  h2 { font-size: 13px; color: var(--gold); text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 12px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid rgba(244, 180, 0, 0.08); vertical-align: middle; }
+  th { color: var(--ink-soft); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; background: rgba(0,0,0,0.2); }
+  td.email { font-family: ui-monospace, monospace; font-size: 12px; }
+  td.num { text-align: right; font-feature-settings: "tnum"; }
+  td .pill { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 10px; letter-spacing: 0.5px; }
+  td .pill.ok { background: rgba(78, 205, 196, 0.15); color: var(--ok); }
+  td .pill.warn { background: rgba(255, 107, 107, 0.15); color: var(--warn); }
+  td .pill.muted { background: rgba(255, 248, 231, 0.05); color: var(--ink-faint); }
+  td button {
+    background: transparent; color: var(--gold); border: 1px solid var(--line);
+    padding: 4px 10px; font-size: 11px; border-radius: 5px; cursor: pointer;
+  }
+  td button:hover { border-color: var(--gold); }
+  td button.danger { color: var(--warn); }
+  td button.danger:hover { border-color: var(--warn); }
+
+  .add-form { display: flex; gap: 8px; margin-bottom: 12px; }
+  .add-form input {
+    background: rgba(0,0,0,0.35); color: var(--ink);
+    border: 1px solid var(--line); border-radius: 6px;
+    padding: 8px 12px; font-size: 13px; outline: none;
+  }
+  .add-form input:focus { border-color: var(--gold); }
+  .add-form input.email { flex: 0 0 280px; font-family: ui-monospace, monospace; }
+  .add-form input.note { flex: 1; }
+  .add-form button {
+    background: linear-gradient(135deg, var(--hot), var(--gold));
+    color: white; border: none; padding: 8px 16px; border-radius: 6px;
+    font-size: 13px; font-weight: 700; cursor: pointer;
+  }
+
+  .empty { color: var(--ink-faint); padding: 16px; font-style: italic; }
+
+  /* Drawer for per-viewer events */
+  #drawer {
+    position: fixed; top: 0; right: 0; bottom: 0; width: min(560px, 95vw);
+    background: var(--bg-2); border-left: 1px solid var(--line);
+    box-shadow: -12px 0 48px rgba(0,0,0,0.5);
+    transform: translateX(100%); transition: transform 220ms ease;
+    overflow-y: auto; z-index: 100;
+  }
+  #drawer.open { transform: translateX(0); }
+  #drawer header {
+    padding: 20px; border-bottom: 1px solid var(--line);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  #drawer header h3 { font-size: 14px; color: var(--gold); }
+  #drawer header .close { background: none; border: none; color: var(--ink-soft); font-size: 22px; cursor: pointer; }
+  #drawer .events { padding: 16px 20px; }
+  .ev { padding: 10px 0; border-bottom: 1px dashed rgba(244, 180, 0, 0.1); }
+  .ev .ts { font-size: 11px; color: var(--ink-faint); font-family: ui-monospace, monospace; }
+  .ev .action { display: inline-block; font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; margin-right: 8px; }
+  .ev .action.copy, .ev .action.cut { background: rgba(255, 107, 107, 0.15); color: var(--warn); }
+  .ev .action.shortcut { background: rgba(244, 180, 0, 0.15); color: var(--gold); }
+  .ev .action.contextmenu, .ev .action.dragstart { background: rgba(255, 107, 107, 0.1); color: var(--warn); }
+  .ev .action.decrypt-success { background: rgba(78, 205, 196, 0.15); color: var(--ok); }
+  .ev .action.decrypt-fail { background: rgba(255, 107, 107, 0.2); color: var(--warn); }
+  .ev .action.unknown, .ev .action.system-init { background: rgba(255, 248, 231, 0.05); color: var(--ink-faint); }
+  .ev .detail { font-size: 12px; color: var(--ink-soft); font-family: ui-monospace, monospace; word-break: break-all; margin-top: 4px; }
+  .ev .meta { font-size: 10px; color: var(--ink-faint); margin-top: 4px; }
+
+  .loading { text-align: center; padding: 48px; color: var(--ink-faint); }
+
+  @media (max-width: 720px) {
+    .stats { grid-template-columns: repeat(2, 1fr); }
+    .add-form { flex-direction: column; }
+    .add-form input.email { flex: 1; }
+    table { font-size: 12px; }
+    th, td { padding: 8px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <header class="top">
+    <h1>Hotpot Admin Dashboard</h1>
+    <div class="meta">
+      <span id="server-time">—</span>
+      <button id="refresh">Refresh</button>
+      <button id="logout">Sign out</button>
+    </div>
+  </header>
+
+  <div id="content">
+    <div class="loading">Loading…</div>
+  </div>
+</div>
+
+<div id="drawer">
+  <header>
+    <h3 id="drawer-title">Events</h3>
+    <button class="close" id="drawer-close">×</button>
+  </header>
+  <div class="events" id="drawer-events"></div>
+</div>
+
+<script>
+async function api(path, opts = {}) {
+  const r = await fetch(path, { credentials: 'include', cache: 'no-store', ...opts });
+  if (r.status === 401) {
+    location.href = '/hotpot/admin/';
+    return null;
+  }
+  if (!r.ok) throw new Error(`API ${path} → ${r.status}`);
+  return r.json();
+}
+
+function escapeHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function fmtTs(ms) {
+  if (!ms) return '—';
+  const d = new Date(ms);
+  return d.toLocaleString('zh-CN', { hour12: false });
+}
+function fmtRelative(ms) {
+  if (!ms) return '—';
+  const diff = Date.now() - ms;
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return 'just now';
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  return `${d}d ago`;
+}
+
+let lastSummary = null;
+
+async function loadSummary() {
+  const data = await api('/hotpot/admin/api/summary');
+  if (!data) return;
+  lastSummary = data;
+  render(data);
+}
+
+function render(data) {
+  document.getElementById('server-time').textContent = `Server: ${fmtTs(data.server_time)}`;
+  const c = document.getElementById('content');
+  c.innerHTML = `
+    <div class="stats">
+      <div class="stat"><div class="label">Total viewers</div><div class="value">${data.totals.viewers}</div></div>
+      <div class="stat"><div class="label">Total events</div><div class="value">${data.totals.events}</div></div>
+      <div class="stat"><div class="label">Last 24h</div><div class="value">${data.totals.events_24h}</div></div>
+      <div class="stat warn"><div class="label">Suspicious</div><div class="value">${data.totals.suspicious}</div></div>
+    </div>
+
+    <section>
+      <h2>My investors (manual list)</h2>
+      <form class="add-form" id="add-investor">
+        <input class="email" type="email" name="email" placeholder="investor@vc.com" required>
+        <input class="note" name="note" placeholder="Note (firm name, intro, deal stage…)">
+        <button type="submit">Add</button>
+      </form>
+      <table id="investors-table">
+        <thead><tr><th>Email</th><th>Note</th><th>Status</th><th class="num">Visits</th><th>Last seen</th><th>Added</th><th></th></tr></thead>
+        <tbody>${
+          data.investors.length === 0
+            ? `<tr><td colspan="7" class="empty">No investors yet — add one above.</td></tr>`
+            : data.investors.map(i => `
+              <tr>
+                <td class="email">${escapeHtml(i.email)}</td>
+                <td>${escapeHtml(i.note || '—')}</td>
+                <td>${i.active ? '<span class="pill ok">Active</span>' : '<span class="pill muted">Pending</span>'}</td>
+                <td class="num">${i.visits || 0}</td>
+                <td>${i.last_seen ? fmtRelative(i.last_seen) : '—'}</td>
+                <td>${fmtRelative(i.added_at)}</td>
+                <td><button class="danger" data-del-investor="${escapeHtml(i.email)}">Remove</button></td>
+              </tr>`).join('')
+        }</tbody>
+      </table>
+    </section>
+
+    ${data.leaks.length > 0 ? `
+    <section>
+      <h2>⚠ Leak warnings — viewers not in your investor list</h2>
+      <table>
+        <thead><tr><th>Email</th><th>Country</th><th class="num">Visits</th><th class="num">Suspicious</th><th>First seen</th><th>Last seen</th><th></th></tr></thead>
+        <tbody>${data.leaks.map(v => `
+          <tr>
+            <td class="email">${escapeHtml(v.email)}</td>
+            <td>${escapeHtml(v.country || '—')}</td>
+            <td class="num">${v.visits || 0}</td>
+            <td class="num">${v.suspicious || 0}</td>
+            <td>${fmtRelative(v.first_seen)}</td>
+            <td>${fmtRelative(v.last_seen)}</td>
+            <td>
+              <button data-show-events="${escapeHtml(v.email)}">Events</button>
+              <button data-add-investor="${escapeHtml(v.email)}">+ Investor</button>
+            </td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </section>` : ''}
+
+    <section>
+      <h2>All viewers (auto-tracked)</h2>
+      <table>
+        <thead><tr><th>Email</th><th>In list</th><th>Country</th><th class="num">Visits</th><th class="num">Suspicious</th><th>First seen</th><th>Last seen</th><th></th></tr></thead>
+        <tbody>${
+          data.viewers.length === 0
+            ? `<tr><td colspan="8" class="empty">No viewers yet — share the password and they'll show up here.</td></tr>`
+            : data.viewers.map(v => `
+              <tr>
+                <td class="email">${escapeHtml(v.email)}</td>
+                <td>${v.in_investor_list ? '<span class="pill ok">✓</span>' : '<span class="pill warn">⚠</span>'}</td>
+                <td>${escapeHtml(v.country || '—')}</td>
+                <td class="num">${v.visits || 0}</td>
+                <td class="num">${(v.suspicious || 0) > 0 ? `<span style="color:var(--warn)">${v.suspicious}</span>` : 0}</td>
+                <td>${fmtRelative(v.first_seen)}</td>
+                <td>${fmtRelative(v.last_seen)}</td>
+                <td><button data-show-events="${escapeHtml(v.email)}">Events</button></td>
+              </tr>`).join('')
+        }</tbody>
+      </table>
+    </section>
+  `;
+  attachHandlers();
+}
+
+function attachHandlers() {
+  document.getElementById('add-investor').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const email = fd.get('email');
+    const note = fd.get('note') || '';
+    try {
+      await api('/hotpot/admin/api/investors', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, note })
+      });
+      e.target.reset();
+      await loadSummary();
+    } catch (err) { alert('Failed to add: ' + err.message); }
+  });
+  document.querySelectorAll('[data-del-investor]').forEach(b => {
+    b.addEventListener('click', async () => {
+      const email = b.getAttribute('data-del-investor');
+      if (!confirm(`Remove ${email} from investor list?`)) return;
+      try {
+        await api(`/hotpot/admin/api/investors?email=${encodeURIComponent(email)}`, { method: 'DELETE' });
+        await loadSummary();
+      } catch (err) { alert('Failed to remove: ' + err.message); }
+    });
+  });
+  document.querySelectorAll('[data-show-events]').forEach(b => {
+    b.addEventListener('click', async () => {
+      const email = b.getAttribute('data-show-events');
+      await openDrawer(email);
+    });
+  });
+  document.querySelectorAll('[data-add-investor]').forEach(b => {
+    b.addEventListener('click', async () => {
+      const email = b.getAttribute('data-add-investor');
+      const note = prompt(`Add ${email} as an investor — note (optional):`, '');
+      if (note === null) return;
+      try {
+        await api('/hotpot/admin/api/investors', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, note })
+        });
+        await loadSummary();
+      } catch (err) { alert('Failed: ' + err.message); }
+    });
+  });
+}
+
+async function openDrawer(email) {
+  document.getElementById('drawer-title').textContent = `Events · ${email}`;
+  const evDiv = document.getElementById('drawer-events');
+  evDiv.innerHTML = '<div class="loading">Loading…</div>';
+  document.getElementById('drawer').classList.add('open');
+  try {
+    const data = await api(`/hotpot/admin/api/events?email=${encodeURIComponent(email)}&limit=200`);
+    if (!data || data.events.length === 0) {
+      evDiv.innerHTML = '<div class="empty">No events.</div>';
+      return;
+    }
+    evDiv.innerHTML = data.events.map(e => `
+      <div class="ev">
+        <div class="ts">${fmtTs(e.ts)} · ${fmtRelative(e.ts)}</div>
+        <div><span class="action ${escapeHtml(e.action)}">${escapeHtml(e.action)}</span>${e.detail ? `<span class="detail">${escapeHtml(e.detail)}</span>` : ''}</div>
+        <div class="meta">${escapeHtml(e.ip)} · ${escapeHtml(e.country)} · ${escapeHtml((e.ua || '').slice(0, 80))}</div>
+      </div>
+    `).join('');
+  } catch (err) {
+    evDiv.innerHTML = `<div class="empty">Failed to load: ${escapeHtml(err.message)}</div>`;
+  }
+}
+
+document.getElementById('drawer-close').onclick = () => document.getElementById('drawer').classList.remove('open');
+document.getElementById('refresh').onclick = () => loadSummary();
+document.getElementById('logout').onclick = async () => {
+  await fetch('/hotpot/admin/logout', { method: 'POST', credentials: 'include' });
+  location.href = '/hotpot/admin/';
+};
+
+// Initial load + auto-refresh every 30s
+loadSummary();
+setInterval(() => loadSummary().catch(() => {}), 30000);
+</script>
+</body>
+</html>
